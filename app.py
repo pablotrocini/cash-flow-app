@@ -22,12 +22,12 @@ Original file is located at
 Below is an example of how to upload files using `files.upload()`:
 """
 
-from google.colab import files
+# from google.colab import files
 
-uploaded = files.upload()
+# uploaded = files.upload()
 
-for fn in uploaded.keys():
-  print(f'User uploaded file "{fn}" with length {len(uploaded[fn])} bytes')
+# for fn in uploaded.keys():
+#   print(f'User uploaded file "{fn}" with length {len(uploaded[fn])} bytes')
 
 # Este comando es para instalar paquetes en Colab.
 # Para una aplicación de Streamlit, asegúrate de que 'XlsxWriter' esté en tu archivo requirements.txt
