@@ -30,9 +30,9 @@ Below is an example of how to upload files using `files.upload()`:
 #   print(f'User uploaded file "{fn}" with length {len(uploaded[fn])} bytes')
 
 # Este comando es para instalar paquetes en Colab.
-# Para una aplicación de Streamlit, asegúrate de que 'XlsxWriter' esté en tu archivo requirements.txt
-# o instálalo manualmente en tu entorno antes de ejecutar el script.
-!pip install XlsxWriter streamlit
+# Para una aplicación de Streamlit, asegúrate de que 'XlsxWriter' y 'streamlit' estén en tu archivo requirements.txt
+# o instálalos manualmente en tu entorno antes de ejecutar el script.
+# !pip install XlsxWriter streamlit
 
 import pandas as pd
 from datetime import datetime, timedelta
