@@ -29,7 +29,6 @@ uploaded = files.upload()
 for fn in uploaded.keys():
   print(f'User uploaded file "{fn}" with length {len(uploaded[fn])} bytes')
 
-!pip install XlsxWriter
 
 import pandas as pd
 from datetime import datetime, timedelta
