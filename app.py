@@ -295,13 +295,13 @@ else:
 # from google.colab import files
 # files.download('nombre_de_tu_notebook.py') # Esto descargaría el archivo si ya existe
 
-import pandas as pd
+# import pandas as pd
 
-# Cargar el archivo Excel
-df_cashflow_exploracion = pd.read_excel('Resumen_Cashflow_Formateado.xlsx')
+# # Cargar el archivo Excel
+# df_cashflow_exploracion = pd.read_excel('Resumen_Cashflow_Formateado.xlsx')
 
-# Mostrar las primeras filas del DataFrame
-display(df_cashflow_exploracion.head())
+# # Mostrar las primeras filas del DataFrame
+# display(df_cashflow_exploracion.head())
 
 """En la interfaz de Colab, la forma más sencilla es ir a `Archivo` > `Descargar` > `Descargar .py`. Esto creará un archivo Python con todo el código de las celdas de código de tu notebook.
 
