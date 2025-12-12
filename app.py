@@ -12,16 +12,6 @@ Original file is located at
 # from google.colab import drive
 # drive.mount('/content/drive')
 
-"""You can upload files to your Colab environment in several ways:
-
-1.  **Using the file icon in the left sidebar:** Click on the folder icon (Files) in the left sidebar. Then, click on the 'Upload to session storage' icon (up arrow) and select your files.
-2.  **Mounting Google Drive:** You can mount your Google Drive to access files directly from there.
-3.  **Using `files.upload()`:** This Python function provides a simple interface to upload files from your local machine.
-4.  **Using `wget` or `curl`:** If your files are hosted online, you can download them directly into Colab.
-
-Below is an example of how to upload files using `files.upload()`:
-"""
-
 # from google.colab import files
 
 # uploaded = files.upload()
