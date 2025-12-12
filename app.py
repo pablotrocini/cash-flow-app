@@ -9,8 +9,8 @@ Original file is located at
 
 
 
-from google.colab import drive
-drive.mount('/content/drive')
+# from google.colab import drive
+# drive.mount('/content/drive')
 
 """You can upload files to your Colab environment in several ways:
 
@@ -29,6 +29,10 @@ uploaded = files.upload()
 for fn in uploaded.keys():
   print(f'User uploaded file "{fn}" with length {len(uploaded[fn])} bytes')
 
+# Este comando es para instalar paquetes en Colab.
+# Para una aplicación de Streamlit, asegúrate de que 'XlsxWriter' esté en tu archivo requirements.txt
+# o instálalo manualmente en tu entorno antes de ejecutar el script.
+# !pip install XlsxWriter
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -259,6 +263,14 @@ output_filename = "your_script_name.py"
 # Si de todas formas quieres hacerlo programáticamente desde Colab (requiere acceso al .ipynb):
 # from google.colab import files
 # files.download('nombre_de_tu_notebook.py') # Esto descargaría el archivo si ya existe
+
+import pandas as pd
+
+# Cargar el archivo Excel
+df_cashflow_exploracion = pd.read_excel('Resumen_Cashflow_Formateado.xlsx')
+
+# Mostrar las primeras filas del DataFrame
+display(df_cashflow_exploracion.head())
 
 """En la interfaz de Colab, la forma más sencilla es ir a `Archivo` > `Descargar` > `Descargar .py`. Esto creará un archivo Python con todo el código de las celdas de código de tu notebook.
 
