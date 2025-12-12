@@ -275,11 +275,11 @@ else:
     st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
 
 # Para guardar todo el código Python del cuaderno en un archivo .py
-import nbformat
-from nbconvert import PythonExporter
+# import nbformat
+# from nbconvert import PythonExporter
 
-notebook_filename = "current_notebook.ipynb" # Esto debería ser el nombre de tu cuaderno si lo descargaste o abriste así
-output_filename = "your_script_name.py"
+# notebook_filename = "current_notebook.ipynb" # Esto debería ser el nombre de tu cuaderno si lo descargaste o abriste así
+# output_filename = "your_script_name.py"
 
 # Puedes obtener el contenido del cuaderno actual si lo has guardado
 # Si este es el notebook activo, Colab lo puede manejar automáticamente a través de la interfaz.
