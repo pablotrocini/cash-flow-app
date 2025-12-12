@@ -296,14 +296,6 @@ else:
 # # Mostrar las primeras filas del DataFrame
 # display(df_cashflow_exploracion.head())
 
-"""En la interfaz de Colab, la forma más sencilla es ir a `Archivo` > `Descargar` > `Descargar .py`. Esto creará un archivo Python con todo el código de las celdas de código de tu notebook.
-
-Una vez que lo hayas descargado:
-
-1.  **Renombra el archivo** si es necesario para que coincida con el nombre de tu script anterior en GitHub.
-2.  **Sube este nuevo archivo `.py` a tu repositorio de GitHub.** Puedes hacerlo arrastrando y soltando en la interfaz web de GitHub (si el archivo original está en el mismo lugar) o usando comandos Git (`git add`, `git commit`, `git push`) si trabajas localmente con el repositorio.
-"""
-
 print(nombres_df.to_string())
 
 # nombres_df = pd.read_excel('Nombres.xlsx')
