@@ -118,14 +118,14 @@ def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tip
 st.title("Generador de Reporte de Cashflow")
 st.write("Sube tus archivos de Excel para generar un reporte detallado.")
 
-# Mover los cargadores de archivos a la barra lateral
-st.sidebar.header("Cargar Archivos")
-uploaded_file_proyeccion = st.sidebar.file_uploader(
+# Cargadores de archivos en la página principal
+st.header("Cargar Archivos")
+uploaded_file_proyeccion = st.file_uploader(
     "Sube el archivo 'Proyeccion Pagos.xlsx'",
     type=["xlsx"],
     key="proyeccion_pagos"
 )
-uploaded_file_cheques = st.sidebar.file_uploader(
+uploaded_file_cheques = st.file_uploader(
     "Sube el archivo 'Cheques.xlsx'",
     type=["xlsx"],
     key="cheques"
