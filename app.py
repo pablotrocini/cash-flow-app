@@ -313,5 +313,5 @@ Una vez que lo hayas descargado:
 
 print(nombres_df.to_string())
 
-nombres_df = pd.read_excel('Nombres.xlsx')
-display(nombres_df.head())
+# nombres_df = pd.read_excel('Nombres.xlsx')
+# display(nombres_df.head())
