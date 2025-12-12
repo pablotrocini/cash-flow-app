@@ -32,20 +32,19 @@ Below is an example of how to upload files using `files.upload()`:
 # Este comando es para instalar paquetes en Colab.
 # Para una aplicación de Streamlit, asegúrate de que 'XlsxWriter' esté en tu archivo requirements.txt
 # o instálalo manualmente en tu entorno antes de ejecutar el script.
-# !pip install XlsxWriter
+!pip install XlsxWriter streamlit
 
 import pandas as pd
 from datetime import datetime, timedelta
+import streamlit as st # Importar Streamlit
+import io # Importar io para manejar archivos en memoria
 
 # ==========================================
-# PARTE 1: PROCESAMIENTO DE DATOS (LÓGICA ANTERIOR)
+# PARTE 1: PROCESAMIENTO DE DATOS
 # ==========================================
 
 fecha_hoy = pd.to_datetime(datetime.now().date())
 # fecha_hoy = pd.to_datetime('2025-12-02') # Descomentar para probar con fecha fija
-
-archivo_proyeccion = 'Proyeccion Pagos.xlsx'
-archivo_cheques = 'Cheques.xlsx'
 
 # Data de correlación incrustada directamente
 data_nombres = {
@@ -71,8 +70,9 @@ data_nombres = {
 }
 nombres_df = pd.DataFrame(data_nombres)
 
-def procesar_archivo(ruta, col_banco, col_fecha, col_importe, tipo_origen, nombres_map_df):
-    df = pd.read_excel(ruta)
+def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tipo_origen, nombres_map_df):
+    # pd.read_excel puede leer tanto de una ruta de archivo como de un objeto tipo archivo (BytesIO)
+    df = pd.read_excel(file_object_or_path)
     df_clean = pd.DataFrame({
         'Banco_Raw': df.iloc[:, col_banco].astype(str).str.strip(),
         'Fecha': pd.to_datetime(df.iloc[:, col_fecha], errors='coerce'),
@@ -114,134 +114,165 @@ def procesar_archivo(ruta, col_banco, col_fecha, col_importe, tipo_origen, nombr
 
     return df_clean
 
-# Cargar y unir
-print("Leyendo archivos...")
-df_proy = procesar_archivo(archivo_proyeccion, 0, 2, 9, 'Proyeccion', nombres_df)
-df_cheq = procesar_archivo(archivo_cheques, 3, 1, 14, 'Cheques', nombres_df)
-df_total = pd.concat([df_proy, df_cheq])
+# ========================================== Streamlit UI ==========================================
+st.title("Generador de Reporte de Cashflow")
+st.write("Por favor, sube los archivos de Excel para generar el reporte.")
 
-# Periodos
-fecha_limite_semana = fecha_hoy + timedelta(days=5)
-
-# 1. Vencido
-filtro_vencido = df_total['Fecha'] < fecha_hoy
-df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
-df_vencido.columns = ['Vencido']
-
-# 2. Semana (Días)
-filtro_semana = (df_total['Fecha'] >= fecha_hoy) & (df_total['Fecha'] <= fecha_limite_semana)
-df_semana_data = df_total[filtro_semana].copy()
-dias_es = {0:'lun', 1:'mar', 2:'mié', 3:'jue', 4:'vie', 5:'sáb', 6:'dom'}
-df_semana_data['Nombre_Dia'] = df_semana_data['Fecha'].apply(lambda x: f"{x.strftime('%d-%b')} {dias_es[x.weekday()]}")
-
-df_semana_pivot = pd.pivot_table(
-    df_semana_data, index=['Empresa', 'Banco_Limpio'], columns='Nombre_Dia', values='Importe', aggfunc='sum', fill_value=0
+uploaded_file_proyeccion = st.file_uploader(
+    "Sube el archivo 'Proyeccion Pagos.xlsx'",
+    type=["xlsx"],
+    key="proyeccion_pagos"
 )
-df_semana_pivot['Total Semana'] = df_semana_pivot.sum(axis=1)
+uploaded_file_cheques = st.file_uploader(
+    "Sube el archivo 'Cheques.xlsx'",
+    type=["xlsx"],
+    key="cheques"
+)
 
-# 3. Emitidos (Futuro solo cheques)
-filtro_emitidos = (df_total['Fecha'] > fecha_limite_semana) & (df_total['Origen'] == 'Cheques')
-df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
-df_emitidos.columns = ['Emitidos']
+if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None:
+    # Convertir los archivos subidos a objetos tipo BytesIO para que pandas los lea
+    archivo_proyeccion_io = io.BytesIO(uploaded_file_proyeccion.getvalue())
+    archivo_cheques_io = io.BytesIO(uploaded_file_cheques.getvalue())
 
-# Unir todo
-reporte_final = pd.concat([df_vencido, df_semana_pivot, df_emitidos], axis=1).fillna(0)
+    st.write("Archivos cargados. Procesando...")
 
-# Ordenar columnas
-cols = list(reporte_final.columns)
-col_vencido = ['Vencido'] if 'Vencido' in cols else []
-col_emitidos = ['Emitidos'] if 'Emitidos' in cols else []
-col_total_sem = ['Total Semana'] if 'Total Semana' in cols else []
-col_dias = sorted([c for c in cols if c not in col_vencido + col_emitidos + col_total_sem])
-orden_final = col_vencido + col_dias + col_total_sem + col_emitidos
-reporte_final = reporte_final[orden_final]
+    # Cargar y unir
+    df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df)
+    df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df)
+    df_total = pd.concat([df_proy, df_cheq])
 
-# ==========================================
-# PARTE 2: DISEÑO VISUAL (XLSXWRITER)
-# ==========================================
-print("Generando Excel con formato...")
+    # Periodos
+    fecha_limite_semana = fecha_hoy + timedelta(days=5)
 
-nombre_archivo_salida = 'Resumen_Cashflow_Formateado.xlsx'
-writer = pd.ExcelWriter(nombre_archivo_salida, engine='xlsxwriter')
-workbook = writer.book
-worksheet = workbook.add_worksheet('Resumen')
+    # 1. Vencido
+    filtro_vencido = df_total['Fecha'] < fecha_hoy
+    df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
+    df_vencido.columns = ['Vencido']
 
-# --- DEFINICIÓN DE FORMATOS ---
-# Color Naranja fuerte (Encabezados)
-fmt_header = workbook.add_format({
-    'bold': True, 'font_color': 'white', 'bg_color': '#ED7D31',
-    'border': 1, 'align': 'center', 'valign': 'vcenter'
-})
-# Color Naranja suave (Subtotales)
-fmt_subtotal = workbook.add_format({
-    'bold': True, 'bg_color': '#FCE4D6', 'num_format': '$ #,##0',
-    'border': 1
-})
-# Formato Moneda normal
-fmt_currency = workbook.add_format({
-    'num_format': '$ #,##0', 'border': 1
-})
-# Formato Texto Banco
-fmt_text = workbook.add_format({'border': 1})
+    # 2. Semana (Días)
+    filtro_semana = (df_total['Fecha'] >= fecha_hoy) & (df_total['Fecha'] <= fecha_limite_semana)
+    df_semana_data = df_total[filtro_semana].copy()
+    dias_es = {0:'lun', 1:'mar', 2:'mié', 3:'jue', 4:'vie', 5:'sáb', 6:'dom'}
+    df_semana_data['Nombre_Dia'] = df_semana_data['Fecha'].apply(lambda x: f"{x.strftime('%d-%b')} {dias_es[x.weekday()]}")
 
-# --- ESCRIBIR ENCABEZADOS ---
-worksheet.write('A1', 'Resumen Cashflow', workbook.add_format({'bold': True, 'font_size': 14}))
-worksheet.write('A2', f"Fecha Actual: {fecha_hoy.strftime('%d/%m/%Y')}")
+    df_semana_pivot = pd.pivot_table(
+        df_semana_data, index=['Empresa', 'Banco_Limpio'], columns='Nombre_Dia', values='Importe', aggfunc='sum', fill_value=0
+    )
+    df_semana_pivot['Total Semana'] = df_semana_pivot.sum(axis=1)
 
-# Escribir la fila de títulos de columnas (Fila 4, índice 3)
-fila_actual = 3
-col_bancos = 0
-worksheet.write(fila_actual, col_bancos, "Etiquetas de fila", fmt_header)
+    # 3. Emitidos (Futuro solo cheques)
+    filtro_emitidos = (df_total['Fecha'] > fecha_limite_semana) & (df_total['Origen'] == 'Cheques')
+    df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
+    df_emitidos.columns = ['Emitidos']
 
-# Escribir los nombres de las columnas de datos
-columnas_datos = reporte_final.columns.tolist()
-for i, col_name in enumerate(columnas_datos):
-    worksheet.write(fila_actual, i + 1, col_name, fmt_header)
+    # Unir todo
+    reporte_final = pd.concat([df_vencido, df_semana_pivot, df_emitidos], axis=1).fillna(0)
 
-fila_actual += 1
+    # Ordenar columnas
+    cols = list(reporte_final.columns)
+    col_vencido = ['Vencido'] if 'Vencido' in cols else []
+    col_emitidos = ['Emitidos'] if 'Emitidos' in cols else []
+    col_total_sem = ['Total Semana'] if 'Total Semana' in cols else []
+    col_dias = sorted([c for c in cols if c not in col_vencido + col_emitidos + col_total_sem])
+    orden_final = col_vencido + col_dias + col_total_sem + col_emitidos
+    reporte_final = reporte_final[orden_final]
 
-# --- ESCRIBIR DATOS POR GRUPO (EMPRESA) ---
-# Obtenemos lista única de empresas del índice
-empresas_unicas = reporte_final.index.get_level_values(0).unique()
+    # ========================================== Streamlit Output ==========================================
+    st.subheader("Reporte de Cashflow Generado")
+    st.dataframe(reporte_final) # Muestra el DataFrame en Streamlit
 
-for empresa in empresas_unicas:
-    # Escribir cabecera de grupo (opcional, aquí lo saltamos y vamos directo a los bancos)
-    # Filtramos los datos de esta empresa
-    datos_empresa = reporte_final.loc[empresa]
+    # Para la descarga del Excel
+    output_excel_data = io.BytesIO()
+    writer = pd.ExcelWriter(output_excel_data, engine='xlsxwriter')
+    workbook = writer.book
+    worksheet = workbook.add_worksheet('Resumen')
 
-    # Ensure datos_empresa is always a DataFrame for iteration over rows
-    # If it's a Series (single bank for this company), convert it to a DataFrame
-    # preserving the bank name as index.
-    if isinstance(datos_empresa, pd.Series):
-        banco_limpio_idx = datos_empresa.name[1] # Extract Banco_Limpio from the Series name (multi-index tuple)
-        datos_empresa = pd.DataFrame(datos_empresa).T # Convert to DataFrame and transpose
-        datos_empresa.index = [banco_limpio_idx] # Set the index to the Banco_Limpio name
-        datos_empresa.index.name = 'Banco_Limpio' # Set the index name
+    # --- DEFINICIÓN DE FORMATOS ---
+    # Color Naranja fuerte (Encabezados)
+    fmt_header = workbook.add_format({
+        'bold': True, 'font_color': 'white', 'bg_color': '#ED7D31',
+        'border': 1, 'align': 'center', 'valign': 'vcenter'
+    })
+    # Color Naranja suave (Subtotales)
+    fmt_subtotal = workbook.add_format({
+        'bold': True, 'bg_color': '#FCE4D6', 'num_format': '$ #,##0',
+        'border': 1
+    })
+    # Formato Moneda normal
+    fmt_currency = workbook.add_format({
+        'num_format': '$ #,##0', 'border': 1
+    })
+    # Formato Texto Banco
+    fmt_text = workbook.add_format({'border': 1})
 
-    for banco, row in datos_empresa.iterrows():
-        worksheet.write(fila_actual, 0, banco, fmt_text) # Nombre Banco
+    # --- ESCRIBIR ENCABEZADOS ---
+    worksheet.write('A1', 'Resumen Cashflow', workbook.add_format({'bold': True, 'font_size': 14}))
+    worksheet.write('A2', f"Fecha Actual: {fecha_hoy.strftime('%d/%m/%Y')}")
 
-        for i, val in enumerate(row):
-            worksheet.write(fila_actual, i + 1, val, fmt_currency)
+    # Escribir la fila de títulos de columnas (Fila 4, índice 3)
+    fila_actual = 3
+    col_bancos = 0
+    worksheet.write(fila_actual, col_bancos, "Etiquetas de fila", fmt_header)
 
-        fila_actual += 1
+    # Escribir los nombres de las columnas de datos
+    columnas_datos = reporte_final.columns.tolist()
+    for i, col_name in enumerate(columnas_datos):
+        worksheet.write(fila_actual, i + 1, col_name, fmt_header)
 
-    # --- CREAR FILA DE SUBTOTAL ---
-    worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal)
+    fila_actual += 1
 
-    # Calcular y escribir sumas
-    sumas = datos_empresa.sum()
-    for i, val in enumerate(sumas):
-        worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
+    # --- ESCRIBIR DATOS POR GRUPO (EMPRESA) ---
+    # Obtenemos lista única de empresas del índice
+    empresas_unicas = reporte_final.index.get_level_values(0).unique()
 
-    fila_actual += 1 # Espacio extra o siguiente linea
+    for empresa in empresas_unicas:
+        # Filtramos los datos de esta empresa
+        datos_empresa = reporte_final.loc[empresa]
 
-# Ajustar ancho de columnas
-worksheet.set_column(0, 0, 25) # Columna Bancos ancha
-worksheet.set_column(1, len(columnas_datos), 15) # Columnas de importes
+        # Ensure datos_empresa is always a DataFrame for iteration over rows
+        # If it's a Series (single bank for this company), convert it to a DataFrame
+        # preserving the bank name as index.
+        if isinstance(datos_empresa, pd.Series):
+            banco_limpio_idx = datos_empresa.name[1] # Extract Banco_Limpio from the Series name (multi-index tuple)
+            datos_empresa = pd.DataFrame(datos_empresa).T # Convert to DataFrame and transpose
+            datos_empresa.index = [banco_limpio_idx] # Set the index to the Banco_Limpio name
+            datos_empresa.index.name = 'Banco_Limpio' # Set the index name
 
-writer.close()
-print(f"¡Listo! Archivo generado: {nombre_archivo_salida}")
+        for banco, row in datos_empresa.iterrows():
+            worksheet.write(fila_actual, 0, banco, fmt_text) # Nombre Banco
+
+            for i, val in enumerate(row):
+                worksheet.write(fila_actual, i + 1, val, fmt_currency)
+
+            fila_actual += 1
+
+        # --- CREAR FILA DE SUBTOTAL ---
+        worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal)
+
+        # Calcular y escribir sumas
+        sumas = datos_empresa.sum()
+        for i, val in enumerate(sumas):
+            worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
+
+        fila_actual += 1 # Espacio extra o siguiente linea
+
+    # Ajustar ancho de columnas
+    worksheet.set_column(0, 0, 25) # Columna Bancos ancha
+    worksheet.set_column(1, len(columnas_datos), 15) # Columnas de importes
+
+    writer.close()
+    output_excel_data.seek(0) # Rebovinar el buffer para que la descarga funcione
+
+    st.download_button(
+        label="Descargar Reporte de Cashflow Formateado",
+        data=output_excel_data,
+        file_name="Resumen_Cashflow_Formateado.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    st.success("¡Listo! Archivo generado y disponible para descarga.")
+
+else:
+    st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
 
 # Para guardar todo el código Python del cuaderno en un archivo .py
 import nbformat
