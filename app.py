@@ -319,6 +319,9 @@ print(nombres_df.to_string())
 # nombres_df = pd.read_excel('Nombres.xlsx')
 # display(nombres_df.head())
 
+from google.colab import files
+files.download('app.py')
+
 """# Task
 Modify the `app.py` Streamlit application to allow users to input 'Saldo Inicial' for each unique 'Empresa' and 'Banco_Limpio' combination from the uploaded files. Integrate these 'Saldo Inicial' values into the cashflow report, calculate a new column 'A Cubrir Vencido' (Saldo Inicial - Vencido), and then reorder the report columns to place 'Saldo Inicial' before 'Vencido' and 'A Cubrir Vencido' at the end. Ensure these changes are reflected in both the Streamlit display and the Excel export.
 
