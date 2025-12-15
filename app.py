@@ -1521,7 +1521,6 @@ The previous code implemented the file uploader but did not correctly parse the 
 # 
 # else:
 #     st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
-#
 
 """## Final Task
 
