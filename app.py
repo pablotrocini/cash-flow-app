@@ -59,6 +59,11 @@ def apply_bank_mapping(raw_bank_name):
 
 def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tipo_origen, nombres_map_df):
     df = pd.read_excel(file_object_or_path)
+    
+    # NEW CONDITIONAL FILTER: Only for 'Proyeccion' files, filter where column H (index 7) is empty
+    if tipo_origen == 'Proyeccion':
+        df = df[df.iloc[:, 7].isnull()].copy() # Filter rows where column H is NaN
+
     df_clean = pd.DataFrame({
         'Banco_Raw': df.iloc[:, col_banco].astype(str).str.strip(),
         'Fecha': pd.to_datetime(df.iloc[:, col_fecha], errors='coerce'),
@@ -246,14 +251,21 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             'border': 1, 'align': 'center', 'valign': 'vcenter',
             'text_wrap': True
         })
-        fmt_subtotal = workbook.add_format({
+        # Subtotal LABEL format (e.g., "Total BYC")
+        fmt_subtotal_label = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#FCE4D6',
+            'border': 1, 'align': 'left', 'valign': 'vcenter'
+        })
+        # Subtotal VALUE format
+        fmt_subtotal_value = workbook.add_format({
             **default_font_properties,
             'bold': True, 'bg_color': '#FCE4D6', 'num_format': '$ #,##0',
-            'border': 1
+            'border': 1, 'align': 'right', 'valign': 'vcenter'
         })
         fmt_currency = workbook.add_format({
             **default_font_properties,
-            'num_format': '$ #,##0', 'border': 1
+            'num_format': '$ #,##0', 'border': 1, 'align': 'right'
         })
         fmt_text = workbook.add_format({
             **default_font_properties,
@@ -263,16 +275,22 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # New formats for conditional formatting on 'A Cubrir Vencido' and 'A Cubrir Semana'
         fmt_positive_acv = workbook.add_format({
             **default_font_properties,
-            'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1
+            'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1, 'align': 'right'
         })
         fmt_negative_acv = workbook.add_format({
             **default_font_properties,
-            'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '$ #,##0', 'border': 1
+            'bold': True, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '$ #,##0', 'border': 1, 'align': 'right'
         })
         
-        # New format for the grand total row
-        # Changed align to 'right' as requested
-        fmt_grand_total = workbook.add_format({
+        # New format for the grand total row *label* "TOTAL BANCOS"
+        fmt_grand_total_label = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#BFBFBF',
+            'border': 1, 'align': 'left', 'valign': 'vcenter'
+        })
+
+        # New format for the grand total row *values*
+        fmt_grand_total_value = workbook.add_format({
             **default_font_properties,
             'bold': True, 'bg_color': '#BFBFBF', 'num_format': '$ #,##0',
             'border': 1, 'align': 'right', 'valign': 'vcenter'
@@ -333,7 +351,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 fila_actual += 1
 
             # --- CREAR FILA DE SUBTOTAL ---
-            worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal)
+            worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal_label) # Apply specific label format
 
             sumas = datos_empresa.sum()
             for i, val in enumerate(sumas): # Loop through subtotal values
@@ -341,13 +359,13 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 # Apply conditional formatting to subtotal rows as well
                 if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                     if val > 0:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv) # Already bold and right-aligned
                     else:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_subtotal) # Default for 0
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_subtotal_value) # Default for 0, now bold and right-aligned
                 else:
-                    worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
+                    worksheet.write(fila_actual, i + 1, val, fmt_subtotal_value) # Use subtotal value format
 
             fila_actual += 1
         
@@ -355,7 +373,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Sum all numeric columns for the grand total row
         grand_totals_series = reporte_final.select_dtypes(include=['number']).sum()
         
-        worksheet.write(fila_actual, 0, "TOTAL BANCOS", fmt_grand_total)
+        worksheet.write(fila_actual, 0, "TOTAL BANCOS", fmt_grand_total_label) # Use specific label format
 
         for i, col_name in enumerate(columnas_datos):
             val = grand_totals_series.get(col_name, "") # Get calculated total or empty string
@@ -364,15 +382,15 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                 if isinstance(val, (int, float)):
                     if val > 0:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv) # Already bold and right-aligned
                     else:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total) # Default for 0
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total_value) # Default for 0
                 else:
-                     worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total) # For non-numeric or empty string
+                     worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total_value) # For non-numeric or empty string
             else:
-                worksheet.write(fila_actual, i + 1, val, fmt_grand_total)
+                worksheet.write(fila_actual, i + 1, val, fmt_grand_total_value) # Use grand total value format
 
         fila_actual += 1
 
