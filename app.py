@@ -322,7 +322,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             # --- CREAR FILA DE SUBTOTAL ---
             worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal)
 
-            sumas = datos_empresa.sum())
+            sumas = datos_empresa.sum()
             for i, val in enumerate(sumas):
                 # Apply subtotal format for 'A Cubrir Vencido' as well, without specific conditional coloring
                 worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
