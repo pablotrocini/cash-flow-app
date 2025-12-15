@@ -126,7 +126,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # 1. Vencido
         filtro_vencido = df_total['Fecha'] < fecha_hoy
-        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum() 
+        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
         df_vencido.columns = ['Vencido']
 
         # 2. Semana (Días)
@@ -271,10 +271,11 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         })
         
         # New format for the grand total row
+        # Changed align to 'right' as requested
         fmt_grand_total = workbook.add_format({
             **default_font_properties,
             'bold': True, 'bg_color': '#BFBFBF', 'num_format': '$ #,##0',
-            'border': 1, 'align': 'left', 'valign': 'vcenter'
+            'border': 1, 'align': 'right', 'valign': 'vcenter'
         })
 
         # --- ESCRIBIR ENCABEZADOS ---
@@ -335,22 +336,43 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal)
 
             sumas = datos_empresa.sum()
-            for i, val in enumerate(sumas):
-                # Apply subtotal format for 'A Cubrir Vencido' as well, without specific conditional coloring
-                worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
+            for i, val in enumerate(sumas): # Loop through subtotal values
+                current_col_excel_idx = i + 1
+                # Apply conditional formatting to subtotal rows as well
+                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
+                    if val > 0:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
+                    elif val < 0:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv)
+                    else:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_subtotal) # Default for 0
+                else:
+                    worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
 
             fila_actual += 1
         
         # --- CREAR FILA DE TOTAL BANCOS ---
         # Sum all numeric columns for the grand total row
         grand_totals_series = reporte_final.select_dtypes(include=['number']).sum()
-        grand_totals = {col: grand_totals_series.get(col, '') for col in columnas_datos}
-
+        
         worksheet.write(fila_actual, 0, "TOTAL BANCOS", fmt_grand_total)
 
         for i, col_name in enumerate(columnas_datos):
-            val = grand_totals.get(col_name, "") # Get calculated total or empty string
-            worksheet.write(fila_actual, i + 1, val, fmt_grand_total)
+            val = grand_totals_series.get(col_name, "") # Get calculated total or empty string
+            current_col_excel_idx = i + 1
+            # Apply conditional formatting to grand total row as well
+            if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
+                if isinstance(val, (int, float)):
+                    if val > 0:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
+                    elif val < 0:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv)
+                    else:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total) # Default for 0
+                else:
+                     worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total) # For non-numeric or empty string
+            else:
+                worksheet.write(fila_actual, i + 1, val, fmt_grand_total)
 
         fila_actual += 1
 
