@@ -42,14 +42,14 @@ bank_mapping_dict = {}
 for idx, row in nombres_df.iterrows():
     canonical_banco = row['Proyeccion Pagos'].strip() # Assume this is the canonical name
     empresa = row['EMPRESA'].strip()
-
+    
     # Map from Cheques name to (canonical_banco, empresa)
     raw_cheque_name = row['Cheques'].strip()
     bank_mapping_dict[raw_cheque_name] = (canonical_banco, empresa)
-
+    
     # Map from Proyeccion Pagos name to (canonical_banco, empresa)
     bank_mapping_dict[canonical_banco] = (canonical_banco, empresa)
-
+    
 # Function to apply the mapping consistently
 def apply_bank_mapping(raw_bank_name):
     mapped_info = bank_mapping_dict.get(raw_bank_name.strip())
@@ -185,27 +185,44 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         reporte_final = reporte_final.fillna(0)
 
         # Calcular 'A Cubrir Vencido' como (Saldo Banco - Vencido)
-        # 'Vencido' should already be filled with 0 due to the fillna(0) above, so no need for 'Vencido_temp'
         reporte_final['A Cubrir Vencido'] = reporte_final['Saldo Banco'] - reporte_final['Vencido']
 
-        # Reordenar columnas para colocar 'Saldo Banco' y 'Saldo FCI' antes de 'Vencido' y 'A Cubrir Vencido' al final
+        # Calculate 'A Cubrir Semana'
+        reporte_final['A Cubrir Semana'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
+
+        # Reordenar columnas para colocar 'Saldo Banco' y 'Saldo FCI' antes de 'Vencido'
+        # y luego 'A Cubrir Vencido' e 'A Cubrir Semana' al final.
         cols = reporte_final.columns.tolist()
 
         # Define lists for new column order
         new_order_cols = []
+
+        # 1. Add static leading columns
         if 'Saldo Banco' in cols: new_order_cols.append('Saldo Banco')
         if 'Saldo FCI' in cols: new_order_cols.append('Saldo FCI')
         if 'Vencido' in cols: new_order_cols.append('Vencido')
-        # 'A Cubrir Vencido' will be added at the very end
 
-        # Add other columns in their original relative order, skipping those already added and 'A Cubrir Vencido'
-        for col in cols:
-            if col not in new_order_cols and col != 'A Cubrir Vencido':
+        # 2. Add daily columns in their specific order
+        for col in expected_day_columns:
+            if col in cols:
                 new_order_cols.append(col)
 
-        # Append 'A Cubrir Vencido' at the very end
-        if 'A Cubrir Vencido' in cols: # Ensure it exists before appending
+        # 3. Add 'Total Semana' and 'Emitidos'
+        if 'Total Semana' in cols: new_order_cols.append('Total Semana')
+        if 'Emitidos' in cols: new_order_cols.append('Emitidos')
+
+        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'A Cubrir Semana'
+        #    and have not been added yet. This handles any unforeseen columns and ensures
+        #    ACV and ACS are indeed last.
+        for col in cols:
+            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'A Cubrir Semana':
+                new_order_cols.append(col)
+
+        # 5. Append 'A Cubrir Vencido' and 'A Cubrir Semana' at the very end in the specified order
+        if 'A Cubrir Vencido' in cols:
             new_order_cols.append('A Cubrir Vencido')
+        if 'A Cubrir Semana' in cols:
+            new_order_cols.append('A Cubrir Semana')
 
         reporte_final = reporte_final[new_order_cols]
 
@@ -234,12 +251,18 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         })
         fmt_text = workbook.add_format({'border': 1})
 
-        # New formats for conditional formatting on 'A Cubrir Vencido'
+        # New formats for conditional formatting on 'A Cubrir Vencido' and 'A Cubrir Semana'
         fmt_positive_acv = workbook.add_format({
             'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1
         })
         fmt_negative_acv = workbook.add_format({
             'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '$ #,##0', 'border': 1
+        })
+        
+        # New format for the grand total row
+        fmt_grand_total = workbook.add_format({
+            'bold': True, 'bg_color': '#BFBFBF', 'num_format': '$ #,##0',
+            'border': 1, 'align': 'left', 'valign': 'vcenter'
         })
 
         # --- ESCRIBIR ENCABEZADOS ---
@@ -251,11 +274,16 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         worksheet.write(fila_actual, col_bancos, "Etiquetas de fila", fmt_header)
 
         columnas_datos = reporte_final.columns.tolist()
-        
+
         # Find the index of 'A Cubrir Vencido' for conditional formatting
         acv_col_idx = -1
         if 'A Cubrir Vencido' in columnas_datos:
             acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
+        
+        # Find the index of 'A Cubrir Semana' for conditional formatting
+        acs_col_idx = -1
+        if 'A Cubrir Semana' in columnas_datos:
+            acs_col_idx = columnas_datos.index('A Cubrir Semana') + 1 # +1 because of the bank column at index 0
 
         for i, col_name in enumerate(columnas_datos):
             worksheet.write(fila_actual, i + 1, col_name, fmt_header)
@@ -278,27 +306,48 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 worksheet.write(fila_actual, 0, banco, fmt_text)
 
                 for i, val in enumerate(row):
-                    if i + 1 == acv_col_idx: # Check if current column is 'A Cubrir Vencido'
+                    current_col_excel_idx = i + 1
+                    if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                         if val > 0:
-                            worksheet.write(fila_actual, i + 1, val, fmt_positive_acv)
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
                         elif val < 0:
-                            worksheet.write(fila_actual, i + 1, val, fmt_negative_acv)
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv)
                         else:
-                            worksheet.write(fila_actual, i + 1, val, fmt_currency) # Default for 0 or NaN
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_currency) # Default for 0
                     else:
-                        worksheet.write(fila_actual, i + 1, val, fmt_currency)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_currency)
 
                 fila_actual += 1
 
             # --- CREAR FILA DE SUBTOTAL ---
             worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal)
 
-            sumas = datos_empresa.sum()
+            sumas = datos_empresa.sum())
             for i, val in enumerate(sumas):
                 # Apply subtotal format for 'A Cubrir Vencido' as well, without specific conditional coloring
                 worksheet.write(fila_actual, i + 1, val, fmt_subtotal)
 
             fila_actual += 1
+        
+        # --- CREAR FILA DE TOTAL BANCOS ---
+        # Sum only 'Total Semana' and 'A Cubrir Semana' across all companies
+        total_semana_gran_total = reporte_final['Total Semana'].sum() if 'Total Semana' in reporte_final.columns else 0
+        a_cubrir_semana_gran_total = reporte_final['A Cubrir Semana'].sum() if 'A Cubrir Semana' in reporte_final.columns else 0
+
+        # Initialize a dictionary to hold grand totals for relevant columns
+        grand_totals = {col: 0 for col in columnas_datos}
+        if 'Total Semana' in columnas_datos: 
+            grand_totals['Total Semana'] = total_semana_gran_total
+        if 'A Cubrir Semana' in columnas_datos:
+            grand_totals['A Cubrir Semana'] = a_cubrir_semana_gran_total
+        
+        worksheet.write(fila_actual, 0, "TOTAL BANCOS", fmt_grand_total)
+
+        for i, col_name in enumerate(columnas_datos):
+            val = grand_totals.get(col_name, "") # Get calculated total or empty string
+            worksheet.write(fila_actual, i + 1, val, fmt_grand_total)
+
+        fila_actual += 1
 
         # Ajustar ancho de columnas
         worksheet.set_column(0, 0, 25)
