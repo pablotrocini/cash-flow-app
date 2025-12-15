@@ -1,3 +1,4 @@
+%%writefile app.py
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -45,7 +46,7 @@ for idx, row in nombres_df.iterrows():
     
     # Map from Cheques name to (canonical_banco, empresa)
     raw_cheque_name = row['Cheques'].strip()
-    bank_mapping_dict[raw_cheque_name] = (canonical_banco, empresa)
+    bank_mapping_dict[raw_cheheque_name] = (canonical_banco, empresa)
     
     # Map from Proyeccion Pagos name to (canonical_banco, empresa)
     bank_mapping_dict[canonical_banco] = (canonical_banco, empresa)
@@ -126,7 +127,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # 1. Vencido
         filtro_vencido = df_total['Fecha'] < fecha_hoy
-        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
+        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum() 
         df_vencido.columns = ['Vencido']
 
         # 2. Semana (Días)
@@ -237,36 +238,48 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         worksheet = workbook.add_worksheet('Resumen')
 
         # --- DEFINICIÓN DE FORMATOS ---
+        # Define default font for all formats
+        default_font_properties = {'font_name': 'Bahnshift SemiLight'}
+
         fmt_header = workbook.add_format({
+            **default_font_properties,
             'bold': True, 'font_color': 'white', 'bg_color': '#ED7D31',
             'border': 1, 'align': 'center', 'valign': 'vcenter',
             'text_wrap': True
         })
         fmt_subtotal = workbook.add_format({
+            **default_font_properties,
             'bold': True, 'bg_color': '#FCE4D6', 'num_format': '$ #,##0',
             'border': 1
         })
         fmt_currency = workbook.add_format({
+            **default_font_properties,
             'num_format': '$ #,##0', 'border': 1
         })
-        fmt_text = workbook.add_format({'border': 1})
+        fmt_text = workbook.add_format({
+            **default_font_properties,
+            'border': 1
+        })
 
         # New formats for conditional formatting on 'A Cubrir Vencido' and 'A Cubrir Semana'
         fmt_positive_acv = workbook.add_format({
+            **default_font_properties,
             'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1
         })
         fmt_negative_acv = workbook.add_format({
+            **default_font_properties,
             'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '$ #,##0', 'border': 1
         })
         
         # New format for the grand total row
         fmt_grand_total = workbook.add_format({
+            **default_font_properties,
             'bold': True, 'bg_color': '#BFBFBF', 'num_format': '$ #,##0',
             'border': 1, 'align': 'left', 'valign': 'vcenter'
         })
 
         # --- ESCRIBIR ENCABEZADOS ---
-        worksheet.write('A1', 'Resumen Cashflow', workbook.add_format({'bold': True, 'font_size': 14}))
+        worksheet.write('A1', 'Resumen Cashflow', workbook.add_format({**default_font_properties, 'bold': True, 'font_size': 14}))
         worksheet.write('A2', f"Fecha Actual: {fecha_hoy.strftime('%d/%m/%Y')}")
 
         fila_actual = 3
@@ -330,17 +343,10 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             fila_actual += 1
         
         # --- CREAR FILA DE TOTAL BANCOS ---
-        # Sum only 'Total Semana' and 'A Cubrir Semana' across all companies
-        total_semana_gran_total = reporte_final['Total Semana'].sum() if 'Total Semana' in reporte_final.columns else 0
-        a_cubrir_semana_gran_total = reporte_final['A Cubrir Semana'].sum() if 'A Cubrir Semana' in reporte_final.columns else 0
+        # Sum all numeric columns for the grand total row
+        grand_totals_series = reporte_final.select_dtypes(include=['number']).sum()
+        grand_totals = {col: grand_totals_series.get(col, '') for col in columnas_datos}
 
-        # Initialize a dictionary to hold grand totals for relevant columns
-        grand_totals = {col: 0 for col in columnas_datos}
-        if 'Total Semana' in columnas_datos: 
-            grand_totals['Total Semana'] = total_semana_gran_total
-        if 'A Cubrir Semana' in columnas_datos:
-            grand_totals['A Cubrir Semana'] = a_cubrir_semana_gran_total
-        
         worksheet.write(fila_actual, 0, "TOTAL BANCOS", fmt_grand_total)
 
         for i, col_name in enumerate(columnas_datos):
