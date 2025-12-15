@@ -45,7 +45,7 @@ for idx, row in nombres_df.iterrows():
     
     # Map from Cheques name to (canonical_banco, empresa)
     raw_cheque_name = row['Cheques'].strip()
-    bank_mapping_dict[raw_cheheque_name] = (canonical_banco, empresa)
+    bank_mapping_dict[raw_cheque_name] = (canonical_banco, empresa)
     
     # Map from Proyeccion Pagos name to (canonical_banco, empresa)
     bank_mapping_dict[canonical_banco] = (canonical_banco, empresa)
