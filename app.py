@@ -664,7 +664,7 @@ pip install fpdf2
 #         output_pdf_data = io.BytesIO()
 # 
 #         class PDF(FPDF):
-#             def header(self:
+#             def header(self):
 #                 self.set_font('Arial', 'B', 12)
 #                 self.cell(0, 10, 'Resumen Cashflow', 0, 1, 'C')
 #                 self.set_font('Arial', '', 10)
