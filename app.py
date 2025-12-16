@@ -3,7 +3,6 @@ import pandas as pd
 from datetime import datetime, timedelta
 import streamlit as st
 import io
-from fpdf import FPDF
 
 # ==========================================
 # PARTE 1: PROCESAMIENTO DE DATOS
@@ -60,6 +59,11 @@ def apply_bank_mapping(raw_bank_name):
 
 def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tipo_origen, nombres_map_df):
     df = pd.read_excel(file_object_or_path)
+
+    # NEW CONDITIONAL FILTER: Only for 'Proyeccion' files, filter where column H (index 7) is empty
+    if tipo_origen == 'Proyeccion':
+        df = df[df.iloc[:, 7].isnull()].copy() # Filter rows where column H is NaN
+
     df_clean = pd.DataFrame({
         'Banco_Raw': df.iloc[:, col_banco].astype(str).str.strip(),
         'Fecha': pd.to_datetime(df.iloc[:, col_fecha], errors='coerce'),
@@ -188,11 +192,11 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Calcular 'A Cubrir Vencido' como (Saldo Banco - Vencido)
         reporte_final['A Cubrir Vencido'] = reporte_final['Saldo Banco'] - reporte_final['Vencido']
 
-        # Calculate 'Disponible Futuro'
-        reporte_final['Disponible Futuro'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
+        # Calculate 'A Cubrir Semana'
+        reporte_final['A Cubrir Semana'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
 
         # Reordenar columnas para colocar 'Saldo Banco' y 'Saldo FCI' antes de 'Vencido'
-        # y luego 'A Cubrir Vencido' e 'Disponible Futuro' al final.
+        # y luego 'A Cubrir Vencido' e 'A Cubrir Semana' al final.
         cols = reporte_final.columns.tolist()
 
         # Define lists for new column order
@@ -212,18 +216,18 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'Total Semana' in cols: new_order_cols.append('Total Semana')
         if 'Emitidos' in cols: new_order_cols.append('Emitidos')
 
-        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'Disponible Futuro'
+        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'A Cubrir Semana'
         #    and have not been added yet. This handles any unforeseen columns and ensures
-        #    ACV and Disponible Futuro are indeed last.
+        #    ACV and ACS are indeed last.
         for col in cols:
-            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'Disponible Futuro':
+            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'A Cubrir Semana':
                 new_order_cols.append(col)
 
-        # 5. Append 'A Cubrir Vencido' and 'Disponible Futuro' at the very end in the specified order
+        # 5. Append 'A Cubrir Vencido' and 'A Cubrir Semana' at the very end in the specified order
         if 'A Cubrir Vencido' in cols:
             new_order_cols.append('A Cubrir Vencido')
-        if 'Disponible Futuro' in cols:
-            new_order_cols.append('Disponible Futuro')
+        if 'A Cubrir Semana' in cols:
+            new_order_cols.append('A Cubrir Semana')
 
         reporte_final = reporte_final[new_order_cols]
 
@@ -231,70 +235,93 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         st.subheader("Reporte de Cashflow Generado")
         st.dataframe(reporte_final)
 
-        # Para la descarga del PDF
-        output_pdf_data = io.BytesIO()
+        # Para la descarga del Excel
+        output_excel_data = io.BytesIO()
+        writer = pd.ExcelWriter(output_excel_data, engine='xlsxwriter')
+        workbook = writer.book
+        worksheet = workbook.add_worksheet('Resumen')
 
-        class PDF(FPDF):
-            def header(self):
-                self.set_font('Arial', 'B', 12)
-                self.cell(0, 10, 'Resumen Cashflow', 0, 1, 'C')
-                self.set_font('Arial', '', 10)
-                self.cell(0, 10, f"Fecha Actual: {fecha_hoy.strftime('%d/%m/%Y')}", 0, 1, 'L')
-                self.ln(5)
+        # --- DEFINICIÓN DE FORMATOS ---
+        # Define default font for all formats
+        default_font_properties = {'font_name': 'Bahnshift SemiLight'}
 
-            def footer(self):
-                self.set_y(-15)
-                self.set_font('Arial', 'I', 8)
-                self.cell(0, 10, 'Page %s' % self.page_no(), 0, 0, 'C')
+        fmt_header = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'font_color': 'white', 'bg_color': '#ED7D31',
+            'border': 1, 'align': 'center', 'valign': 'vcenter',
+            'text_wrap': True
+        })
+        # Subtotal LABEL format (e.g., "Total BYC")
+        fmt_subtotal_label = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#FCE4D6',
+            'border': 1, 'align': 'left', 'valign': 'vcenter'
+        })
+        # Subtotal VALUE format
+        fmt_subtotal_value = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#FCE4D6', 'num_format': '$ #,##0',
+            'border': 1, 'align': 'right', 'valign': 'vcenter'
+        })
+        fmt_currency = workbook.add_format({
+            **default_font_properties,
+            'num_format': '$ #,##0', 'border': 1, 'align': 'right'
+        })
+        fmt_text = workbook.add_format({
+            **default_font_properties,
+            'border': 1
+        })
 
-        pdf = PDF(orientation='L') # Landscape orientation
-        pdf.add_page()
-        pdf.set_auto_page_break(auto=True, margin=15)
-        pdf.set_font('Arial', '', 8)
+        # New formats for conditional formatting on 'A Cubrir Vencido' and 'A Cubrir Semana'
+        fmt_positive_acv = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1, 'align': 'right'
+        })
+        fmt_negative_acv = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#FFC7CE', 'font_color': '#9C0006', 'num_format': '$ #,##0', 'border': 1, 'align': 'right'
+        })
 
-        # Prepare data for PDF table
-        reporte_final_for_pdf = reporte_final.reset_index()
-        reporte_final_for_pdf['Banco'] = reporte_final_for_pdf['Empresa'] + ' - ' + reporte_final_for_pdf['Banco_Limpio']
-        reporte_final_for_pdf = reporte_final_for_pdf.drop(columns=['Empresa', 'Banco_Limpio'])
+        # New format for the grand total row *label* "TOTAL BANCOS"
+        fmt_grand_total_label = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#BFBFBF',
+            'border': 1, 'align': 'left', 'valign': 'vcenter'
+        })
 
-        # Reorder columns for PDF display (Banco first, then original order from reporte_final)
-        col_names_pdf_ordered = ['Banco'] + reporte_final.columns.tolist()
-        reporte_final_for_pdf = reporte_final_for_pdf[col_names_pdf_ordered]
+        # New format for the grand total row *values*
+        fmt_grand_total_value = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'bg_color': '#BFBFBF', 'num_format': '$ #,##0',
+            'border': 1, 'align': 'right', 'valign': 'vcenter'
+        })
 
-        # Column headers for PDF (replace \n with space for FPDF)
-        processed_col_names = [col.replace('\n', ' ') for col in col_names_pdf_ordered]
+        # --- ESCRIBIR ENCABEZADOS ---
+        worksheet.write('A1', 'Resumen Cashflow', workbook.add_format({**default_font_properties, 'bold': True, 'font_size': 14}))
+        worksheet.write('A2', f"Fecha Actual: {fecha_hoy.strftime('%d/%m/%Y')}")
 
-        # Determine column widths dynamically
-        # Max width available: pdf.w - 2 * pdf.l_margin (landscape A4 is 297mm)
-        page_width = pdf.w - 2 * pdf.l_margin
-        # Allocate fixed width for 'Banco' column and distribute remaining width for others
-        fixed_banco_width = 45
-        num_data_cols = len(processed_col_names) - 1
-        data_col_width = (page_width - fixed_banco_width) / num_data_cols
-        col_widths = [fixed_banco_width] + [data_col_width] * num_data_cols
+        fila_actual = 3
+        col_bancos = 0
+        worksheet.write(fila_actual, col_bancos, "Etiquetas de fila", fmt_header)
 
-        # Write header row
-        pdf.set_fill_color(237, 125, 49) # Orange header color
-        pdf.set_text_color(255, 255, 255) # White text
-        pdf.set_font('Arial', 'B', 8)
-        for i, header in enumerate(processed_col_names):
-            pdf.multi_cell(col_widths[i], 5, header, 1, 'C', 1, 0) # 5 is height, 1 for border, 'C' for center, 1 for fill, 0 for right
-        pdf.ln()
-        pdf.set_fill_color(255, 255, 255) # Reset fill color for data rows
-        pdf.set_text_color(0, 0, 0) # Reset text color
+        columnas_datos = reporte_final.columns.tolist()
 
-        # Write data rows and subtotals
-        pdf.set_font('Arial', '', 8)
-        
-        # Get indices for conditional formatting columns in the `reporte_final` (original) DataFrame
+        # Find the index of 'A Cubrir Vencido' for conditional formatting
         acv_col_idx = -1
-        if 'A Cubrir Vencido' in reporte_final.columns:
-            acv_col_idx = reporte_final.columns.get_loc('A Cubrir Vencido')
-        
-        df_col_idx = -1
-        if 'Disponible Futuro' in reporte_final.columns:
-            df_col_idx = reporte_final.columns.get_loc('Disponible Futuro')
+        if 'A Cubrir Vencido' in columnas_datos:
+            acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
 
+        # Find the index of 'A Cubrir Semana' for conditional formatting
+        acs_col_idx = -1
+        if 'A Cubrir Semana' in columnas_datos:
+            acs_col_idx = columnas_datos.index('A Cubrir Semana') + 1 # +1 because of the bank column at index 0
+
+        for i, col_name in enumerate(columnas_datos):
+            worksheet.write(fila_actual, i + 1, col_name, fmt_header)
+
+        fila_actual += 1
+
+        # --- ESCRIBIR DATOS POR GRUPO (EMPRESA) ---
         empresas_unicas = reporte_final.index.get_level_values(0).unique()
 
         for empresa in empresas_unicas:
@@ -304,112 +331,81 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 banco_limpio_idx = datos_empresa.name[1]
                 datos_empresa = pd.DataFrame(datos_empresa).T
                 datos_empresa.index = [banco_limpio_idx]
+                datos_empresa.index.name = 'Banco_Limpio'
 
             for banco, row in datos_empresa.iterrows():
-                # Write bank name (first column in PDF)
-                pdf.set_font('Arial', '', 8) # Regular font for data
-                pdf.cell(col_widths[0], 6, str(banco), 1, 0, 'L')
+                worksheet.write(fila_actual, 0, banco, fmt_text)
 
-                # Write numeric data
-                for i, col_name_orig in enumerate(reporte_final.columns):
-                    val = row[col_name_orig]
-                    
-                    fill_cell = 0 # No fill by default
-                    text_color = (0,0,0) # Black by default
-                    fill_color = (255,255,255) # White by default
-
-                    if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
+                for i, val in enumerate(row):
+                    current_col_excel_idx = i + 1
+                    if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                         if val > 0:
-                            fill_color = (198, 239, 206) # Light Green
-                            text_color = (0, 97, 0)     # Dark Green
-                            fill_cell = 1
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
                         elif val < 0:
-                            fill_color = (255, 199, 206) # Light Red
-                            text_color = (156, 0, 6)    # Dark Red
-                            fill_cell = 1
-                    
-                    pdf.set_text_color(*text_color)
-                    pdf.set_fill_color(*fill_color)
-                    pdf.cell(col_widths[i+1], 6, f"${val:,.0f}", 1, 0, 'R', fill_cell)
-                    
-                    pdf.set_text_color(0,0,0) # Reset colors for next cell
-                    pdf.set_fill_color(255,255,255)
-                pdf.ln()
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv)
+                        else:
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_currency) # Default for 0
+                    else:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_currency)
 
-            # Subtotal row
-            pdf.set_font('Arial', 'B', 8) # Bold for subtotal
-            pdf.set_fill_color(252, 228, 214) # Light orange background
-            pdf.cell(col_widths[0], 6, f"Total {empresa}", 1, 0, 'L', 1) # Label cell
+                fila_actual += 1
+
+            # --- CREAR FILA DE SUBTOTAL ---
+            worksheet.write(fila_actual, 0, f"Total {empresa}", fmt_subtotal_label) # Apply specific label format
 
             sumas = datos_empresa.sum()
-            for i, col_name_orig in enumerate(reporte_final.columns):
-                val = sumas[col_name_orig]
-
-                fill_cell = 1 # Always fill subtotal cells
-                text_color = (0,0,0) # Black by default
-                fill_color = (252, 228, 214) # Light orange by default
-
-                if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
+            for i, val in enumerate(sumas): # Loop through subtotal values
+                current_col_excel_idx = i + 1
+                # Apply conditional formatting to subtotal rows as well
+                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                     if val > 0:
-                        fill_color = (198, 239, 206) # Light Green
-                        text_color = (0, 97, 0)     # Dark Green
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
-                        fill_color = (255, 199, 206) # Light Red
-                        text_color = (156, 0, 6)    # Dark Red
-                
-                pdf.set_text_color(*text_color)
-                pdf.set_fill_color(*fill_color)
-                pdf.cell(col_widths[i+1], 6, f"${val:,.0f}", 1, 0, 'R', fill_cell)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv) # Already bold and right-aligned
+                    else:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_subtotal_value) # Default for 0, now bold and right-aligned
+                else:
+                    worksheet.write(fila_actual, i + 1, val, fmt_subtotal_value) # Use subtotal value format
 
-                pdf.set_text_color(0,0,0) # Reset colors
-                pdf.set_fill_color(252, 228, 214)
-            pdf.ln()
-            pdf.ln(2) # Small break between companies
+            fila_actual += 1
 
-        # Grand Total row
-        pdf.set_font('Arial', 'B', 8) # Bold for grand total
-        pdf.set_fill_color(191, 191, 191) # Grey background
-        pdf.cell(col_widths[0], 6, "TOTAL BANCOS", 1, 0, 'L', 1) # Label cell
-
+        # --- CREAR FILA DE TOTAL BANCOS ---
         # Sum all numeric columns for the grand total row
         grand_totals_series = reporte_final.select_dtypes(include=['number']).sum()
 
-        for i, col_name_orig in enumerate(reporte_final.columns):
-            val = grand_totals_series.get(col_name_orig, "") # Get calculated total or empty string
+        worksheet.write(fila_actual, 0, "TOTAL BANCOS", fmt_grand_total_label) # Use specific label format
 
-            fill_cell = 1 # Always fill grand total cells
-            text_color = (0,0,0) # Black by default
-            fill_color = (191, 191, 191) # Grey by default
-
-            if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
+        for i, col_name in enumerate(columnas_datos):
+            val = grand_totals_series.get(col_name, "") # Get calculated total or empty string
+            current_col_excel_idx = i + 1
+            # Apply conditional formatting to grand total row as well
+            if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                 if isinstance(val, (int, float)):
                     if val > 0:
-                        fill_color = (198, 239, 206) # Light Green
-                        text_color = (0, 97, 0)     # Dark Green
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
-                        fill_color = (255, 199, 206) # Light Red
-                        text_color = (156, 0, 6)    # Dark Red
-            
-            pdf.set_text_color(*text_color)
-            pdf.set_fill_color(*fill_color)
-
-            if isinstance(val, (int, float)):
-                pdf.cell(col_widths[i+1], 6, f"${val:,.0f}", 1, 0, 'R', fill_cell)
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv) # Already bold and right-aligned
+                    else:
+                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total_value) # Default for 0
+                else:
+                     worksheet.write(fila_actual, current_col_excel_idx, val, fmt_grand_total_value) # For non-numeric or empty string
             else:
-                pdf.cell(col_widths[i+1], 6, str(val), 1, 0, 'R', fill_cell)
-            
-            pdf.set_text_color(0,0,0) # Reset colors
-            pdf.set_fill_color(191, 191, 191)
-        pdf.ln()
+                worksheet.write(fila_actual, i + 1, val, fmt_grand_total_value) # Use grand total value format
 
-        pdf.output(output_pdf_data)
-        output_pdf_data.seek(0)
+        fila_actual += 1
+
+        # Ajustar ancho de columnas
+        worksheet.set_column(0, 0, 25)
+        worksheet.set_column(1, len(columnas_datos), 15)
+
+        writer.close()
+        output_excel_data.seek(0)
 
         st.download_button(
-            label="Descargar Reporte de Cashflow Formateado (PDF)",
-            data=output_pdf_data,
-            file_name="Resumen_Cashflow_Formateado.pdf",
-            mime="application/pdf"
+            label="Descargar Reporte de Cashflow Formateado",
+            data=output_excel_data,
+            file_name="Resumen_Cashflow_Formateado.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
         st.success("¡Listo! Archivo generado y disponible para descarga.")
 
