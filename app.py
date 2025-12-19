@@ -199,7 +199,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # 3. Emitidos (Futuro solo cheques)
         filtro_emitidos = (df_total['Fecha'] > fecha_limite_semana) & (df_total['Origen'] == 'Cheques')
-        df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum())
+        df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
         df_emitidos.columns = ['Emitidos']
 
         # Unir todo usando left merges, con df_saldos_clean como base
