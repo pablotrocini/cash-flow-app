@@ -103,8 +103,8 @@ def procesar_archivo_impuestos(file_object_or_path):
     # Filter based on 'Estado'
     df_impuestos_clean = df_impuestos_clean[df_impuestos_clean['Estado'].isin(['VENCIDO', 'A PAGAR'])].copy()
 
-    # Convert 'Importe' to numeric and multiply by -1
-    df_impuestos_clean['Importe'] = df_impuestos_clean['Importe'] * -1
+    # Convert 'Importe' to numeric
+    # df_impuestos_clean['Importe'] = df_impuestos_clean['Importe'] * -1 # REMOVED: User wants positive sign
 
     # Add 'Origen' column
     df_impuestos_clean['Origen'] = 'Impuestos'
