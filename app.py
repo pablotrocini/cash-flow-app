@@ -473,8 +473,43 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         df_base = df_base_raw[base_columns].copy()
 
-        # Write the DataFrame to the 'Base' sheet
-        df_base.to_excel(writer, sheet_name='Base', index=False)
+        # --- WRITING BASE SHEET TO EXCEL ---
+        base_worksheet = workbook.add_worksheet('Base')
+
+        # Define formats for the Base sheet
+        base_fmt_header = workbook.add_format({
+            **default_font_properties,
+            'bold': True, 'font_color': 'white', 'bg_color': '#ED7D31',
+            'border': 1, 'align': 'center', 'valign': 'vcenter',
+            'text_wrap': True
+        })
+        base_fmt_text = workbook.add_format({**default_font_properties, 'border': 1})
+        base_fmt_date = workbook.add_format({**default_font_properties, 'num_format': 'dd/mm/yyyy', 'border': 1})
+        base_fmt_currency = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0.00', 'border': 1})
+
+        # Write headers for 'Base' sheet
+        base_headers = df_base.columns.tolist()
+        # Rename 'Banco_Limpio' to 'Banco' for display in the Base sheet
+        base_headers_display = [h.replace('Banco_Limpio', 'Banco') for h in base_headers]
+
+        for col_num, value in enumerate(base_headers_display):
+            base_worksheet.write(0, col_num, value, base_fmt_header)
+
+        # Write data rows for 'Base' sheet with appropriate formatting
+        for row_num, row_data in enumerate(df_base.values):
+            for col_num, value in enumerate(row_data):
+                current_format = base_fmt_text
+                if base_headers[col_num] == 'Fecha':
+                    current_format = base_fmt_date
+                elif base_headers[col_num] == 'Importe':
+                    current_format = base_fmt_currency
+                
+                base_worksheet.write(row_num + 1, col_num, value, current_format)
+
+        # Adjust column widths for 'Base' sheet
+        for col_num, value in enumerate(base_headers_display):
+            max_len = max(len(str(value)), df_base[base_headers[col_num]].astype(str).map(len).max() if not df_base.empty else 0)
+            base_worksheet.set_column(col_num, col_num, max_len + 2) # Add a little padding
 
         writer.close()
         output_excel_data.seek(0)
