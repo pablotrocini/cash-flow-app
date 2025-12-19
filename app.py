@@ -439,27 +439,59 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         col_names_pdf_ordered = ['Banco'] + reporte_final.columns.tolist()
         reporte_final_for_pdf = reporte_final_for_pdf[col_names_pdf_ordered]
 
-        # Column headers for PDF (replace \n with space for FPDF)
-        processed_col_names = [col.replace('\n', ' ') for col in col_names_pdf_ordered]
+        # Column headers for PDF (keep \n characters for multi_cell)
+        processed_col_names = col_names_pdf_ordered # Use original names including \n
 
-        # Determine column widths dynamically
-        # Max width available: pdf.w - 2 * pdf.l_margin (landscape A4 is 297mm)
-        page_width = pdf.w - 2 * pdf.l_margin
+        # Determine max height for the header row
+        max_header_height = 0
+        line_height_base = 5 # Use the same height as in the multi_cell call for consistency
+
         # Allocate fixed width for 'Banco' column and distribute remaining width for others
+        page_width = pdf.w - 2 * pdf.l_margin
         fixed_banco_width = 45
         num_data_cols = len(processed_col_names) - 1
-        data_col_width = (page_width - fixed_banco_width) / num_data_cols
-        col_widths = [fixed_banco_width] + [data_col_width] * num_data_cols
+        col_widths = [fixed_banco_width] + [(page_width - fixed_banco_width) / num_data_cols] * num_data_cols
+
+        # Capture initial X and Y for height calculation loop
+        initial_x_calc = pdf.get_x()
+        initial_y_calc = pdf.get_y()
+
+        current_x_pos_calc = initial_x_calc
+
+        for i, header_text in enumerate(processed_col_names):
+            # Temporarily set position for dry_run
+            pdf.set_xy(current_x_pos_calc, initial_y_calc)
+            # Use dry_run to get the actual number of lines multi_cell will generate
+            # Setting a generous height to ensure it calculates lines correctly even if text wraps a lot
+            lines_count = pdf.multi_cell(col_widths[i], line_height_base, header_text, 0, 'C', 0, 1, dry_run=True, output='S') # output='S' to return string
+            # Calculate the height needed for this specific cell
+            height_for_this_cell = lines_count.count('\n') + 1 * line_height_base if lines_count else line_height_base # Count newlines for height
+            max_header_height = max(max_header_height, height_for_this_cell)
+            current_x_pos_calc += col_widths[i] # Advance X for next header calculation
+
+        # Ensure a minimum height if no text causes wrapping (e.g., all single line)
+        if max_header_height == 0:
+            max_header_height = line_height_base # Default to single line height
+
+        # Restore original Y position and X position after height calculation
+        pdf.set_xy(initial_x_calc, initial_y_calc)
 
         # Write header row
         pdf.set_fill_color(237, 125, 49) # Orange header color
         pdf.set_text_color(255, 255, 255) # White text
         pdf.set_font('Arial', 'B', 8)
+
+        # Store starting X and Y for the actual header drawing
+        current_x_draw = pdf.get_x()
+        current_y_draw = pdf.get_y()
+
         for i, header in enumerate(processed_col_names):
-            pdf.multi_cell(col_widths[i], 5, header, 1, 'C', 1, 0)
-        pdf.ln()
-        pdf.set_fill_color(255, 255, 255) # Reset fill color for data rows
-        pdf.set_text_color(0, 0, 0) # Reset text color
+            # Set position explicitly for each cell to ensure alignment
+            pdf.set_xy(current_x_draw, current_y_draw)
+            pdf.multi_cell(col_widths[i], max_header_height / (lines_count.count('\n') + 1), header, 1, 'C', 1, 0) # Adjusted height per line for multi_cell
+            current_x_draw += col_widths[i] # Advance X for the next cell in the row
+
+        pdf.ln(max_header_height) # Move to the next line after the entire header row
 
         # Write data rows and subtotals
         pdf.set_font('Arial', '', 8)
@@ -485,12 +517,15 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
             for banco, row in datos_empresa.iterrows():
                 # Write bank name (first column in PDF)
-                pdf.set_font('Arial', '', 8)
+                pdf.set_font('Arial', '', 8) # Regular font for data
                 pdf.cell(col_widths[0], 6, str(banco), 1, 0, 'L')
 
                 # Write numeric data
                 for i, col_name_orig in enumerate(reporte_final.columns):
                     val = row[col_name_orig]
+                    
+                    # Determine text to display: blank if 0, otherwise formatted value
+                    display_text = '' if val == 0 else f"${val:,.0f}"
 
                     fill_cell = 0 # No fill by default
                     text_color = (0,0,0) # Black by default
@@ -508,20 +543,23 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
                     pdf.set_text_color(*text_color)
                     pdf.set_fill_color(*fill_color)
-                    pdf.cell(col_widths[i+1], 6, f"${val:,.0f}", 1, 0, 'R', fill_cell)
+                    pdf.cell(col_widths[i+1], 6, display_text, 1, 0, 'R', fill_cell)
 
                     pdf.set_text_color(0,0,0) # Reset colors for next cell
                     pdf.set_fill_color(255,255,255)
                 pdf.ln()
 
             # Subtotal row
-            pdf.set_font('Arial', 'B', 8)
+            pdf.set_font('Arial', 'B', 8) # Bold for subtotal
             pdf.set_fill_color(252, 228, 214) # Light orange background
-            pdf.cell(col_widths[0], 6, f"Total {empresa}", 1, 0, 'L', 1)
+            pdf.cell(col_widths[0], 6, f"Total {empresa}", 1, 0, 'L', 1) # Label cell
 
             sumas = datos_empresa.sum()
             for i, col_name_orig in enumerate(reporte_final.columns):
                 val = sumas[col_name_orig]
+                
+                # Determine text to display: blank if 0, otherwise formatted value
+                display_text = '' if val == 0 else f"${val:,.0f}"
 
                 fill_cell = 1 # Always fill subtotal cells
                 text_color = (0,0,0) # Black by default
@@ -537,23 +575,29 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
                 pdf.set_text_color(*text_color)
                 pdf.set_fill_color(*fill_color)
-                pdf.cell(col_widths[i+1], 6, f"${val:,.0f}", 1, 0, 'R', fill_cell)
+                pdf.cell(col_widths[i+1], 6, display_text, 1, 0, 'R', fill_cell)
 
                 pdf.set_text_color(0,0,0) # Reset colors
                 pdf.set_fill_color(252, 228, 214)
             pdf.ln()
-            pdf.ln(2)
+            pdf.ln(2) # Small break between companies
 
         # Grand Total row
-        pdf.set_font('Arial', 'B', 8)
+        pdf.set_font('Arial', 'B', 8) # Bold for grand total
         pdf.set_fill_color(191, 191, 191) # Grey background
-        pdf.cell(col_widths[0], 6, "TOTAL BANCOS", 1, 0, 'L', 1)
+        pdf.cell(col_widths[0], 6, "TOTAL BANCOS", 1, 0, 'L', 1) # Label cell
 
         # Sum all numeric columns for the grand total row
         grand_totals_series = reporte_final.select_dtypes(include=['number']).sum()
 
         for i, col_name_orig in enumerate(reporte_final.columns):
             val = grand_totals_series.get(col_name_orig, "") # Get calculated total or empty string
+            
+            # Determine text to display: blank if 0, otherwise formatted value
+            if isinstance(val, (int, float)):
+                display_text = '' if val == 0 else f"${val:,.0f}"
+            else:
+                display_text = str(val)
 
             fill_cell = 1 # Always fill grand total cells
             text_color = (0,0,0) # Black by default
@@ -571,10 +615,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             pdf.set_text_color(*text_color)
             pdf.set_fill_color(*fill_color)
 
-            if isinstance(val, (int, float)):
-                pdf.cell(col_widths[i+1], 6, f"${val:,.0f}", 1, 0, 'R', fill_cell)
-            else:
-                pdf.cell(col_widths[i+1], 6, str(val), 1, 0, 'R', fill_cell)
+            pdf.cell(col_widths[i+1], 6, display_text, 1, 0, 'R', fill_cell)
 
             pdf.set_text_color(0,0,0) # Reset colors
             pdf.set_fill_color(191, 191, 191)
