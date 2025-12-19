@@ -58,7 +58,7 @@ def apply_bank_mapping(raw_bank_name):
         return mapped_info[0], mapped_info[1] # Banco_Limpio, Empresa
     return raw_bank_name, 'UNKNOWN' # Fallback if no match is found
 
-def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tipo_origen, nombres_map_df):
+def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tipo_origen, nombres_map_df, col_detalle=None, col_numero_cheque=None):
     df = pd.read_excel(file_object_or_path)
 
     # NEW CONDITIONAL FILTER: Only for 'Proyeccion' files, filter where column H (index 7) is empty
@@ -73,6 +73,16 @@ def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tip
     })
     df_clean = df_clean.dropna(subset=['Importe', 'Banco_Raw'])
 
+    if col_detalle is not None:
+        df_clean['Detalle'] = df.iloc[:, col_detalle].astype(str).str.strip()
+    else:
+        df_clean['Detalle'] = '' # Default empty string if no detail column
+
+    if col_numero_cheque is not None:
+        df_clean['Numero_Cheque'] = df.iloc[:, col_numero_cheque].astype(str).str.strip()
+    else:
+        df_clean['Numero_Cheque'] = '' # Default empty string if no cheque number column
+
     # Apply the centralized mapping
     df_clean[['Banco_Limpio', 'Empresa']] = df_clean['Banco_Raw'].apply(lambda x: pd.Series(apply_bank_mapping(x)))
 
@@ -86,7 +96,8 @@ def procesar_archivo_impuestos(file_object_or_path):
         'Empresa_Raw': df.iloc[:, 2].astype(str).str.strip(), # Column C
         'Fecha': pd.to_datetime(df.iloc[:, 5], errors='coerce'), # Column F
         'Importe': pd.to_numeric(df.iloc[:, 6], errors='coerce'), # Column G
-        'Estado': df.iloc[:, 11].astype(str).str.strip() # Column L
+        'Estado': df.iloc[:, 11].astype(str).str.strip(), # Column L
+        'Detalle': df.iloc[:, 1].astype(str).str.strip() # Column B for Detalle
     })
 
     # Filter based on 'Estado'
@@ -98,6 +109,9 @@ def procesar_archivo_impuestos(file_object_or_path):
     # Add 'Origen' column
     df_impuestos_clean['Origen'] = 'Impuestos'
 
+    # Add empty 'Numero_Cheque' column for consistency
+    df_impuestos_clean['Numero_Cheque'] = ''
+
     # Create mapping from nombres_df for 'Empresa' to 'Banco_Limpio'
     # Group by 'EMPRESA' and take the first 'Proyeccion Pagos' as the default 'Banco_Limpio'
     empresa_to_default_bank = nombres_df.groupby('EMPRESA')['Proyeccion Pagos'].first().to_dict()
@@ -108,7 +122,7 @@ def procesar_archivo_impuestos(file_object_or_path):
 
     # Rename Empresa_Raw to Empresa for consistency and select final columns
     df_impuestos_clean = df_impuestos_clean.rename(columns={'Empresa_Raw': 'Empresa'})
-    df_impuestos_clean = df_impuestos_clean[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen']]
+    df_impuestos_clean = df_impuestos_clean[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']]
     df_impuestos_clean = df_impuestos_clean.dropna(subset=['Importe', 'Empresa', 'Banco_Limpio', 'Fecha'])
 
     return df_impuestos_clean
@@ -147,9 +161,11 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         archivo_saldos_io = io.BytesIO(uploaded_file_saldos.getvalue())
         archivo_impuestos_io = io.BytesIO(uploaded_file_impuestos.getvalue())
 
-        df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df)
-        df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df)
+        df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df, col_detalle=6)
+        df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df, col_detalle=10, col_numero_cheque=2)
         df_impuestos = procesar_archivo_impuestos(archivo_impuestos_io)
+        
+        # Create df_total from the three processed dataframes
         df_total = pd.concat([df_proy, df_cheq, df_impuestos])
 
         # Cargar saldos iniciales del archivo Saldos.xlsx
@@ -444,14 +460,18 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # --- Hoja 'Base' ---
         # Prepare the data for the 'Base' sheet
         # Reset index to make 'Empresa' and 'Banco_Limpio' regular columns
-        df_base = reporte_final.reset_index()
+        # Create df_base_raw by concatenating the raw (processed) dataframes
+        df_base_raw = pd.concat([df_proy, df_cheq, df_impuestos], ignore_index=True)
 
-        # Define columns to exclude
-        cols_to_exclude = ['Saldo Banco', 'Saldo FCI']
-        # Filter out existing columns from cols_to_exclude to prevent errors if they don't exist
-        cols_to_exclude_existing = [col for col in cols_to_exclude if col in df_base.columns]
+        # Define the desired columns for the 'Base' sheet
+        base_columns = ['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']
 
-        df_base = df_base.drop(columns=cols_to_exclude_existing, errors='ignore')
+        # Ensure all base_columns exist in df_base_raw, filling missing ones with empty string or 0
+        for col in base_columns:
+            if col not in df_base_raw.columns:
+                df_base_raw[col] = '' # Or 0 for numeric columns if preferred
+
+        df_base = df_base_raw[base_columns].copy()
 
         # Write the DataFrame to the 'Base' sheet
         df_base.to_excel(writer, sheet_name='Base', index=False)
