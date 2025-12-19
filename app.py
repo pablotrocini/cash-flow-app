@@ -78,6 +78,41 @@ def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tip
 
     return df_clean
 
+def procesar_archivo_impuestos(file_object_or_path):
+    df = pd.read_excel(file_object_or_path)
+
+    # Extract data from specified columns
+    df_impuestos_clean = pd.DataFrame({
+        'Empresa_Raw': df.iloc[:, 2].astype(str).str.strip(), # Column C
+        'Fecha': pd.to_datetime(df.iloc[:, 5], errors='coerce'), # Column F
+        'Importe': pd.to_numeric(df.iloc[:, 6], errors='coerce'), # Column G
+        'Estado': df.iloc[:, 11].astype(str).str.strip() # Column L
+    })
+
+    # Filter based on 'Estado'
+    df_impuestos_clean = df_impuestos_clean[df_impuestos_clean['Estado'].isin(['VENCIDO', 'A PAGAR'])].copy()
+
+    # Convert 'Importe' to numeric and multiply by -1
+    df_impuestos_clean['Importe'] = df_impuestos_clean['Importe'] * -1
+
+    # Add 'Origen' column
+    df_impuestos_clean['Origen'] = 'Impuestos'
+
+    # Create mapping from nombres_df for 'Empresa' to 'Banco_Limpio'
+    # Group by 'EMPRESA' and take the first 'Proyeccion Pagos' as the default 'Banco_Limpio'
+    empresa_to_default_bank = nombres_df.groupby('EMPRESA')['Proyeccion Pagos'].first().to_dict()
+
+    # Apply mapping to create 'Banco_Limpio' and handle 'UNKNOWN'
+    df_impuestos_clean['Banco_Limpio'] = df_impuestos_clean['Empresa_Raw'].map(empresa_to_default_bank)
+    df_impuestos_clean['Banco_Limpio'] = df_impuestos_clean['Banco_Limpio'].fillna('UNKNOWN')
+
+    # Rename Empresa_Raw to Empresa for consistency and select final columns
+    df_impuestos_clean = df_impuestos_clean.rename(columns={'Empresa_Raw': 'Empresa'})
+    df_impuestos_clean = df_impuestos_clean[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen']]
+    df_impuestos_clean = df_impuestos_clean.dropna(subset=['Importe', 'Empresa', 'Banco_Limpio', 'Fecha'])
+
+    return df_impuestos_clean
+
 # ========================================== Streamlit UI ==========================================
 st.title("Generador de Reporte de Cashflow")
 st.write("Sube tus archivos de Excel para generar un reporte detallado.")
@@ -99,16 +134,23 @@ uploaded_file_saldos = st.file_uploader(
     type=["xlsx"],
     key="saldos"
 )
+uploaded_file_impuestos = st.file_uploader(
+    "Sube el archivo 'Calendario de Vencimientos Impositivos.xlsx'",
+    type=["xlsx"],
+    key="calendario_impositivos"
+)
 
-if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None and uploaded_file_saldos is not None:
+if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None and uploaded_file_saldos is not None and uploaded_file_impuestos is not None:
     with st.spinner('Procesando datos y generando reporte...'):
         archivo_proyeccion_io = io.BytesIO(uploaded_file_proyeccion.getvalue())
         archivo_cheques_io = io.BytesIO(uploaded_file_cheques.getvalue())
         archivo_saldos_io = io.BytesIO(uploaded_file_saldos.getvalue())
+        archivo_impuestos_io = io.BytesIO(uploaded_file_impuestos.getvalue())
 
         df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df)
         df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df)
-        df_total = pd.concat([df_proy, df_cheq])
+        df_impuestos = procesar_archivo_impuestos(archivo_impuestos_io)
+        df_total = pd.concat([df_proy, df_cheq, df_impuestos])
 
         # Cargar saldos iniciales del archivo Saldos.xlsx
         df_saldos = pd.read_excel(archivo_saldos_io)
@@ -157,7 +199,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # 3. Emitidos (Futuro solo cheques)
         filtro_emitidos = (df_total['Fecha'] > fecha_limite_semana) & (df_total['Origen'] == 'Cheques')
-        df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
+        df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum())
         df_emitidos.columns = ['Emitidos']
 
         # Unir todo usando left merges, con df_saldos_clean como base
@@ -403,7 +445,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Prepare the data for the 'Base' sheet
         # Reset index to make 'Empresa' and 'Banco_Limpio' regular columns
         df_base = reporte_final.reset_index()
-        
+
         # Define columns to exclude
         cols_to_exclude = ['Saldo Banco', 'Saldo FCI']
         # Filter out existing columns from cols_to_exclude to prevent errors if they don't exist
