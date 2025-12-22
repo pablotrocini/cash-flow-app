@@ -1,5 +1,5 @@
-streamlit
 pandas
+streamlit
 openpyxl
-xlsxwriter
 fpdf2
+xlsxwriter>=3.0.0
