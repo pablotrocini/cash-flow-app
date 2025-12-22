@@ -63,7 +63,7 @@ def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tip
 
     # NEW CONDITIONAL FILTER: Only for 'Proyeccion' files, filter where column H (index 7) is empty
     if tipo_origen == 'Proyeccion':
-        df = df[df.iloc[:, 7].isnull()].copy() # Filter rows where column H is NaN
+        df = df[df.iloc[:, 7].isnull()].copy()
 
     df_clean = pd.DataFrame({
         'Banco_Raw': df.iloc[:, col_banco].astype(str).str.strip(),
@@ -71,7 +71,7 @@ def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tip
         'Importe': pd.to_numeric(df.iloc[:, col_importe], errors='coerce'),
         'Origen': tipo_origen
     })
-    # Drop rows where 'Importe', 'Banco_Raw', or 'Fecha' are NaN (after coercion)
+    # Ensure Fecha is also dropped if NaN, for robust processing downstream
     df_clean = df_clean.dropna(subset=['Importe', 'Banco_Raw', 'Fecha'])
 
     if col_detalle is not None:
@@ -102,10 +102,10 @@ def procesar_archivo_impuestos(file_object_or_path):
     })
 
     # Filter based on 'Estado'
-    df_impuestos_clean = df_impuestos_clean[df_impuestos_clean['Estado'].isin(['VENCIDO', 'A PAGAR'])].copy()
+    df_impuestos_clean = df_impuestos_clean[df_impuestos_clean['Estado'].isin(['VENCIDO', 'A PAGAR'])]
 
-    # Convert 'Importe' to numeric
-    # df_impuestos_clean['Importe'] = df_impuestos_clean['Importe'] * -1 # REMOVED: User wants positive sign
+    # Convert 'Importe' to numeric and multiply by -1 to treat as outflow
+    df_impuestos_clean['Importe'] = df_impuestos_clean['Importe'] * -1 # Ensure this is uncommented
 
     # Add 'Origen' column
     df_impuestos_clean['Origen'] = 'Impuestos'
@@ -539,30 +539,35 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             # Define a currency format for pivot table values
             pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'bold': False})
 
-            # Add a pivot table to the 'Tabla Dinamica' worksheet
-            workbook.add_pivot_table(
-                base_data_range, # Source data range
-                'A4',          # Location of the pivot table on 'Tabla Dinamica' worksheet
-                {
-                    'rows': [
-                        {'field': 'Empresa'},
-                        {'field': 'Banco_Limpio'},
-                        {'field': 'Fecha', 'date_grouping': 'YM'}
-                    ],
-                    'columns': [], # No columns fields needed as per example structure
-                    'values': [
-                        {'field': 'Importe', 'function': 'sum', 'format': pivot_currency_format}
-                    ],
-                    'filters': [{'field': 'Origen'}],
-                    'excel_2003_colors': False # For modern Excel rendering
-                }
-            )
+            try:
+                # Add a pivot table to the 'Tabla Dinamica' worksheet
+                workbook.add_pivot_table(
+                    base_data_range, # Source data range
+                    'A4',          # Location of the pivot table on 'Tabla Dinamica' worksheet
+                    {
+                        'rows': [
+                            {'field': 'Empresa'},
+                            {'field': 'Banco_Limpio'},
+                            {'field': 'Fecha', 'date_grouping': 'YM'}
+                        ],
+                        'columns': [], # No columns fields needed as per example structure
+                        'values': [
+                            {'field': 'Importe', 'function': 'sum', 'format': pivot_currency_format}
+                        ],
+                        'filters': [{'field': 'Origen'}],
+                        'excel_2003_colors': False # For modern Excel rendering
+                    }
+                )
 
-            # Adjust column widths for 'Tabla Dinamica' sheet for better readability
-            worksheet_pivot.set_column('A:A', 20) # Empresa
-            worksheet_pivot.set_column('B:B', 25) # Banco_Limpio
-            worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
-            worksheet_pivot.set_column('D:D', 18) # Sum of Importe
+                # Adjust column widths for 'Tabla Dinamica' sheet for better readability
+                worksheet_pivot.set_column('A:A', 20) # Empresa
+                worksheet_pivot.set_column('B:B', 25) # Banco_Limpio
+                worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
+                worksheet_pivot.set_column('D:D', 18) # Sum of Importe
+            except AttributeError as e:
+                worksheet_pivot.write('A1', f'Error al crear la tabla dinámica: {e}. Verifique la versión de xlsxwriter o la definición de la tabla.', workbook.add_format({'font_color': 'red'}))
+            except Exception as e:
+                worksheet_pivot.write('A1', f'Ocurrió un error inesperado al crear la tabla dinámica: {e}.', workbook.add_format({'font_color': 'red'}))
         else:
             worksheet_pivot.write('A1', 'No hay datos suficientes para crear una tabla dinámica.')
 
@@ -858,7 +863,3 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
 else:
     st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
-
-# ==========================================
-# FIN: RELASE 16.11
-# ==========================================
