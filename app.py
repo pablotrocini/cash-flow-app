@@ -858,3 +858,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
 else:
     st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
+
+# ==========================================
+# FIN: RELASE 16.11
+# ==========================================
