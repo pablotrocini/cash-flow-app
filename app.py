@@ -195,6 +195,15 @@ uploaded_file_cajas = st.file_uploader(
 
 if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None and uploaded_file_saldos is not None and uploaded_file_impuestos is not None and uploaded_file_cajas is not None:
     with st.spinner('Procesando datos y generando reporte...'):
+        # Add xlsxwriter version check
+        try:
+            import xlsxwriter
+            st.write(f"XlsxWriter version: {xlsxwriter.__version__}")
+        except ImportError:
+            st.error("Error: xlsxwriter library not found. Please ensure it's installed and redeploy.")
+        except AttributeError:
+            st.error("Error: Cannot determine xlsxwriter version.")
+
         archivo_proyeccion_io = io.BytesIO(uploaded_file_proyeccion.getvalue())
         archivo_cheques_io = io.BytesIO(uploaded_file_cheques.getvalue())
         archivo_saldos_io = io.BytesIO(uploaded_file_saldos.getvalue())
@@ -228,23 +237,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         df_saldos_clean[['Banco_Limpio', 'Empresa']] = df_saldos_clean['Banco_Raw_Saldos'].apply(lambda x: pd.Series(apply_bank_mapping(x)))
 
         df_saldos_clean = df_saldos_clean[['Empresa', 'Banco_Limpio', 'Saldo FCI', 'Saldo Banco']].drop_duplicates()
-
-        # Prepare df_cajas for merging with saldos to ensure cash boxes appear in the main report
-        df_cajas_for_saldos_base = pd.DataFrame({
-            'Empresa': df_cajas['Empresa'],
-            'Banco_Limpio': df_cajas['Banco_Limpio'],
-            'Saldo FCI': 0,  # Cash boxes typically don't have FCI, so 0
-            'Saldo Banco': df_cajas['Importe'] # Use the Importe of cash boxes as their Saldo Banco
-        }).drop_duplicates()
-
-        # Combine df_saldos_clean and df_cajas_for_saldos_base to form the comprehensive initial balances base
-        df_initial_balances = pd.concat([df_saldos_clean, df_cajas_for_saldos_base], ignore_index=True)
-        # Group by Empresa and Banco_Limpio and sum balances, in case of overlaps or duplicate entries
-        df_initial_balances = df_initial_balances.groupby(['Empresa', 'Banco_Limpio']).agg({
-            'Saldo FCI': 'sum',
-            'Saldo Banco': 'sum'
-        }).reset_index()
-        df_initial_balances = df_initial_balances.set_index(['Empresa', 'Banco_Limpio'])
+        df_saldos_clean = df_saldos_clean.set_index(['Empresa', 'Banco_Limpio'])
 
         # Periodos
         fecha_limite_semana = fecha_hoy + timedelta(days=5)
@@ -279,8 +272,8 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         df_emitidos = df_total[filtro_emitidos].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
         df_emitidos.columns = ['Emitidos']
 
-        # Unir todo usando df_initial_balances as base
-        reporte_final = df_initial_balances.copy() # Start with all banks from Saldos.xlsx AND Cash Boxes
+        # Unir todo usando left merges, con df_saldos_clean como base
+        reporte_final = df_saldos_clean.copy() # Start with all banks from Saldos.xlsx
 
         reporte_final = pd.merge(
             reporte_final,
@@ -605,32 +598,6 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         for i, col in enumerate(df_cajas.columns):
             max_len = max(df_cajas[col].astype(str).map(len).max(), len(col))
             worksheet_cajas.set_column(i, i, max_len + 2)
-
-        # --- Add df_cajas to Resumen sheet below main report ---
-        # Add some vertical space
-        fila_actual += 2 # Add a couple of empty rows for spacing
-        worksheet.write(fila_actual, 0, "Detalle de Saldos de Cajas", workbook.add_format({**default_font_properties, 'bold': True, 'font_size': 12}))
-        fila_actual += 1
-
-        # Write headers for df_cajas
-        cajas_headers = df_cajas.columns.tolist()
-        for i, col_name in enumerate(cajas_headers):
-            worksheet.write(fila_actual, i, col_name, fmt_header)
-        fila_actual += 1
-
-        # Write data rows for df_cajas
-        for index, row in df_cajas.iterrows():
-            for i, val in enumerate(row):
-                if cajas_headers[i] == 'Importe':
-                    worksheet.write(fila_actual, i, val, fmt_currency)
-                else:
-                    worksheet.write(fila_actual, i, val, fmt_text)
-            fila_actual += 1
-
-        # Adjust column widths for df_cajas in Resumen sheet
-        for i, col in enumerate(cajas_headers):
-            max_len = max(df_cajas[col].astype(str).map(len).max(), len(col))
-            worksheet.set_column(i, i, max_len + 2)
 
         writer.close()
         output_excel_data.seek(0)
