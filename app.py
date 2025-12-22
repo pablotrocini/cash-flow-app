@@ -530,35 +530,40 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # Define the data range for the pivot table on the 'Base' worksheet
         # The data range needs to include the header row, so it's from A1
-        base_data_range = f"Base!$A$1:${chr(ord('A') + len(df_pivot_base.columns) - 1)}${len(df_pivot_base) + 1}"
+        if not df_pivot_base.empty and len(df_pivot_base.columns) > 0:
+            last_col_char = chr(ord('A') + len(df_pivot_base.columns) - 1)
+            last_row_num = len(df_pivot_base) + 1
+            base_data_range = f"Base!$A$1:${last_col_char}${last_row_num}"
 
-        # Define a currency format for pivot table values
-        pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'bold': False})
+            # Define a currency format for pivot table values
+            pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'bold': False})
 
-        # Add a pivot table to the 'Tabla Dinamica' worksheet
-        workbook.add_pivot_table(
-            base_data_range, # Source data range
-            'A4',          # Location of the pivot table on 'Tabla Dinamica' worksheet
-            {
-                'rows': [
-                    {'field': 'Empresa'},
-                    {'field': 'Banco_Limpio'},
-                    {'field': 'Fecha', 'date_grouping': 'YM'}
-                ],
-                'columns': [], # No columns fields needed as per example structure
-                'values': [
-                    {'field': 'Importe', 'function': 'sum', 'format': pivot_currency_format}
-                ],
-                'filters': [{'field': 'Origen'}],
-                'excel_2003_colors': False # For modern Excel rendering
-            }
-        )
+            # Add a pivot table to the 'Tabla Dinamica' worksheet
+            workbook.add_pivot_table(
+                base_data_range, # Source data range
+                'A4',          # Location of the pivot table on 'Tabla Dinamica' worksheet
+                {
+                    'rows': [
+                        {'field': 'Empresa'},
+                        {'field': 'Banco_Limpio'},
+                        {'field': 'Fecha', 'date_grouping': 'YM'}
+                    ],
+                    'columns': [], # No columns fields needed as per example structure
+                    'values': [
+                        {'field': 'Importe', 'function': 'sum', 'format': pivot_currency_format}
+                    ],
+                    'filters': [{'field': 'Origen'}],
+                    'excel_2003_colors': False # For modern Excel rendering
+                }
+            )
 
-        # Adjust column widths for 'Tabla Dinamica' sheet for better readability
-        worksheet_pivot.set_column('A:A', 20) # Empresa
-        worksheet_pivot.set_column('B:B', 25) # Banco_Limpio
-        worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
-        worksheet_pivot.set_column('D:D', 18) # Sum of Importe
+            # Adjust column widths for 'Tabla Dinamica' sheet for better readability
+            worksheet_pivot.set_column('A:A', 20) # Empresa
+            worksheet_pivot.set_column('B:B', 25) # Banco_Limpio
+            worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
+            worksheet_pivot.set_column('D:D', 18) # Sum of Importe
+        else:
+            worksheet_pivot.write('A1', 'No hay datos suficientes para crear una tabla dinámica.')
 
         # Add 'Saldos Cajas' worksheet and write df_cajas
         worksheet_cajas = workbook.add_worksheet('Saldos Cajas')
