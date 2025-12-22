@@ -127,6 +127,39 @@ def procesar_archivo_impuestos(file_object_or_path):
 
     return df_impuestos_clean
 
+# NEW FUNCTION FOR SALDOS CAJAS
+def procesar_archivo_cajas(file_object_or_path):
+    # Read the Excel file, skipping the first 6 rows (header is at row 7, which is index 6)
+    df = pd.read_excel(file_object_or_path, header=6)
+
+    # Create a new DataFrame from the relevant columns
+    df_cajas_clean = pd.DataFrame({
+        'Numero_Caja': pd.to_numeric(df.iloc[:, 0], errors='coerce'), # Column A
+        'Nombre_Caja': df.iloc[:, 1].astype(str).str.strip(),        # Column B
+        'Saldo_Caja': pd.to_numeric(df.iloc[:, 2], errors='coerce')  # Column C
+    })
+
+    # Define the list of allowed box numbers
+    allowed_box_numbers = [1, 6, 11, 30, 74, 101, 111, 121, 131, 141, 154, 161]
+
+    # Filter the DataFrame to include only allowed box numbers and drop NaN 'Saldo_Caja' values
+    df_cajas_clean = df_cajas_clean[
+        df_cajas_clean['Numero_Caja'].isin(allowed_box_numbers)
+    ].dropna(subset=['Saldo_Caja']).copy()
+
+    # Transform df_cajas_clean to match the desired schema
+    df_cajas_output = pd.DataFrame({
+        'Empresa': df_cajas_clean['Nombre_Caja'],
+        'Banco_Limpio': 'Caja ' + df_cajas_clean['Nombre_Caja'],
+        'Fecha': fecha_hoy,
+        'Importe': df_cajas_clean['Saldo_Caja'],
+        'Origen': 'Caja',
+        'Detalle': df_cajas_clean['Nombre_Caja'],
+        'Numero_Cheque': ''
+    })
+
+    return df_cajas_output
+
 # ========================================== Streamlit UI ==========================================
 st.title("Generador de Reporte de Cashflow")
 st.write("Sube tus archivos de Excel para generar un reporte detallado.")
@@ -153,20 +186,31 @@ uploaded_file_impuestos = st.file_uploader(
     type=["xlsx"],
     key="calendario_impositivos"
 )
+uploaded_file_cajas = st.file_uploader(
+    "Sube el archivo 'Saldos de Cajas.xlsx'",
+    type=["xlsx"],
+    key="saldos_cajas"
+)
 
-if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None and uploaded_file_saldos is not None and uploaded_file_impuestos is not None:
+if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None and uploaded_file_saldos is not None and uploaded_file_impuestos is not None and uploaded_file_cajas is not None:
     with st.spinner('Procesando datos y generando reporte...'):
         archivo_proyeccion_io = io.BytesIO(uploaded_file_proyeccion.getvalue())
         archivo_cheques_io = io.BytesIO(uploaded_file_cheques.getvalue())
         archivo_saldos_io = io.BytesIO(uploaded_file_saldos.getvalue())
         archivo_impuestos_io = io.BytesIO(uploaded_file_impuestos.getvalue())
+        archivo_cajas_io = io.BytesIO(uploaded_file_cajas.getvalue())
 
         df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df, col_detalle=6)
         df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df, col_detalle=10, col_numero_cheque=2)
         df_impuestos = procesar_archivo_impuestos(archivo_impuestos_io)
+        df_cajas = procesar_archivo_cajas(archivo_cajas_io)
 
         # Create df_total from the three processed dataframes
-        df_total = pd.concat([df_proy, df_cheq, df_impuestos])
+        df_total = pd.concat([df_proy, df_cheq, df_impuestos, df_cajas])
+
+        # Create df_pivot_base for future payments
+        df_pivot_base = df_total[df_total['Fecha'] >= fecha_hoy].copy()
+        df_pivot_base = df_pivot_base[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']]
 
         # Cargar saldos iniciales del archivo Saldos.xlsx
         df_saldos = pd.read_excel(archivo_saldos_io)
@@ -251,11 +295,11 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Calcular 'A Cubrir Vencido' como (Saldo Banco - Vencido)
         reporte_final['A Cubrir Vencido'] = reporte_final['Saldo Banco'] - reporte_final['Vencido']
 
-        # Calculate 'A Cubrir Semana'
-        reporte_final['A Cubrir Semana'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
+        # Calculate 'Disponible Futuro'
+        reporte_final['Disponible Futuro'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
 
         # Reordenar columnas para colocar 'Saldo Banco' y 'Saldo FCI' antes de 'Vencido'
-        # y luego 'A Cubrir Vencido' e 'A Cubrir Semana' al final.
+        # y luego 'A Cubrir Vencido' e 'Disponible Futuro' al final.
         cols = reporte_final.columns.tolist()
 
         # Define lists for new column order
@@ -275,29 +319,34 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'Total Semana' in cols: new_order_cols.append('Total Semana')
         if 'Emitidos' in cols: new_order_cols.append('Emitidos')
 
-        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'A Cubrir Semana'
+        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'Disponible Futuro'
         #    and have not been added yet. This handles any unforeseen columns and ensures
-        #    ACV and ACS are indeed last.
+        #    ACV and Disponible Futuro are indeed last.
         for col in cols:
-            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'A Cubrir Semana':
+            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'Disponible Futuro':
                 new_order_cols.append(col)
 
-        # 5. Append 'A Cubrir Vencido' and 'A Cubrir Semana' at the very end in the specified order
+        # 5. Append 'A Cubrir Vencido' and 'Disponible Futuro' at the very end in the specified order
         if 'A Cubrir Vencido' in cols:
             new_order_cols.append('A Cubrir Vencido')
-        if 'A Cubrir Semana' in cols:
-            new_order_cols.append('A Cubrir Semana')
+        if 'Disponible Futuro' in cols:
+            new_order_cols.append('Disponible Futuro')
 
         reporte_final = reporte_final[new_order_cols]
 
         # ========================================== Streamlit Output ==========================================
-        st.subheader("Reporte de Cashflow Generado")
-        st.dataframe(reporte_final)
+st.subheader("Reporte de Cashflow Generado")
+st.dataframe(reporte_final)
+
+        st.subheader("Detalle de Saldos de Cajas")
+        st.dataframe(df_cajas)
 
         # Para la descarga del Excel
         output_excel_data = io.BytesIO()
         writer = pd.ExcelWriter(output_excel_data, engine='xlsxwriter')
         workbook = writer.book
+
+        # Add 'Resumen' worksheet
         worksheet = workbook.add_worksheet('Resumen')
 
         # --- DEFINICIÓN DE FORMATOS ---
@@ -331,7 +380,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             'border': 1
         })
 
-        # New formats for conditional formatting on 'A Cubrir Vencido' and 'A Cubrir Semana'
+        # New formats for conditional formatting on 'A Cubrir Vencido' and 'Disponible Futuro'
         fmt_positive_acv = workbook.add_format({
             **default_font_properties,
             'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1, 'align': 'right'
@@ -370,10 +419,10 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'A Cubrir Vencido' in columnas_datos:
             acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
 
-        # Find the index of 'A Cubrir Semana' for conditional formatting
-        acs_col_idx = -1
-        if 'A Cubrir Semana' in columnas_datos:
-            acs_col_idx = columnas_datos.index('A Cubrir Semana') + 1 # +1 because of the bank column at index 0
+        # Find the index of 'Disponible Futuro' for conditional formatting
+        df_col_idx = -1
+        if 'Disponible Futuro' in columnas_datos:
+            df_col_idx = columnas_datos.index('Disponible Futuro') + 1 # +1 because of the bank column at index 0
 
         for i, col_name in enumerate(columnas_datos):
             worksheet.write(fila_actual, i + 1, col_name, fmt_header)
@@ -397,7 +446,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
                 for i, val in enumerate(row):
                     current_col_excel_idx = i + 1
-                    if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
+                    if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
                         if val > 0:
                             worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
                         elif val < 0:
@@ -416,7 +465,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             for i, val in enumerate(sumas): # Loop through subtotal values
                 current_col_excel_idx = i + 1
                 # Apply conditional formatting to subtotal rows as well
-                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
+                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
                     if val > 0:
                         worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
@@ -438,7 +487,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             val = grand_totals_series.get(col_name, "") # Get calculated total or empty string
             current_col_excel_idx = i + 1
             # Apply conditional formatting to grand total row as well
-            if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
+            if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
                 if isinstance(val, (int, float)):
                     if val > 0:
                         worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
@@ -456,6 +505,79 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Ajustar ancho de columnas
         worksheet.set_column(0, 0, 25)
         worksheet.set_column(1, len(columnas_datos), 15)
+
+        # Add 'Base' worksheet and write df_pivot_base
+        worksheet_base = workbook.add_worksheet('Base')
+        # Write headers
+        for col_num, value in enumerate(df_pivot_base.columns.values):
+            worksheet_base.write(0, col_num, value, fmt_header)
+        # Write data
+        for r_idx, row_data in enumerate(df_pivot_base.values):
+            for c_idx, cell_data in enumerate(row_data):
+                # Apply currency format only to 'Importe' column
+                if df_pivot_base.columns[c_idx] == 'Importe':
+                    worksheet_base.write(r_idx + 1, c_idx, cell_data, fmt_currency)
+                else:
+                    worksheet_base.write(r_idx + 1, c_idx, cell_data, fmt_text)
+
+        # Adjust column widths for 'Base' sheet
+        for i, col in enumerate(df_pivot_base.columns):
+            max_len = max(df_pivot_base[col].astype(str).map(len).max(), len(col))
+            worksheet_base.set_column(i, i, max_len + 2)
+
+        # Add 'Tabla Dinamica' worksheet
+        worksheet_pivot = workbook.add_worksheet('Tabla Dinamica')
+
+        # Define the data range for the pivot table on the 'Base' worksheet
+        # The data range needs to include the header row, so it's from A1
+        base_data_range = f"Base!$A$1:${chr(ord('A') + len(df_pivot_base.columns) - 1)}${len(df_pivot_base) + 1}"
+
+        # Define a currency format for pivot table values
+        pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'bold': False})
+
+        # Add a pivot table to the 'Tabla Dinamica' worksheet
+        workbook.add_pivot_table(
+            base_data_range, # Source data range
+            'A4',          # Location of the pivot table on 'Tabla Dinamica' worksheet
+            {
+                'rows': [
+                    {'field': 'Empresa'},
+                    {'field': 'Banco_Limpio'},
+                    {'field': 'Fecha', 'date_grouping': 'YM'}
+                ],
+                'columns': [], # No columns fields needed as per example structure
+                'values': [
+                    {'field': 'Importe', 'function': 'sum', 'format': pivot_currency_format}
+                ],
+                'filters': [{'field': 'Origen'}],
+                'excel_2003_colors': False # For modern Excel rendering
+            }
+        )
+
+        # Adjust column widths for 'Tabla Dinamica' sheet for better readability
+        worksheet_pivot.set_column('A:A', 20) # Empresa
+        worksheet_pivot.set_column('B:B', 25) # Banco_Limpio
+        worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
+        worksheet_pivot.set_column('D:D', 18) # Sum of Importe
+
+        # Add 'Saldos Cajas' worksheet and write df_cajas
+        worksheet_cajas = workbook.add_worksheet('Saldos Cajas')
+        # Write headers
+        for col_num, value in enumerate(df_cajas.columns.values):
+            worksheet_cajas.write(0, col_num, value, fmt_header)
+        # Write data
+        for r_idx, row_data in enumerate(df_cajas.values):
+            for c_idx, cell_data in enumerate(row_data):
+                # Apply currency format only to 'Importe' column
+                if df_cajas.columns[c_idx] == 'Importe':
+                    worksheet_cajas.write(r_idx + 1, c_idx, cell_data, fmt_currency)
+                else:
+                    worksheet_cajas.write(r_idx + 1, c_idx, cell_data, fmt_text)
+
+        # Adjust column widths for 'Saldos Cajas' sheet
+        for i, col in enumerate(df_cajas.columns):
+            max_len = max(df_cajas[col].astype(str).map(len).max(), len(col))
+            worksheet_cajas.set_column(i, i, max_len + 2)
 
         writer.close()
         output_excel_data.seek(0)
@@ -559,9 +681,9 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'A Cubrir Vencido' in reporte_final.columns:
             acv_col_idx = reporte_final.columns.get_loc('A Cubrir Vencido')
 
-        acs_col_idx = -1
-        if 'A Cubrir Semana' in reporte_final.columns:
-            acs_col_idx = reporte_final.columns.get_loc('A Cubrir Semana')
+        df_col_idx = -1
+        if 'Disponible Futuro' in reporte_final.columns:
+            df_col_idx = reporte_final.columns.get_loc('Disponible Futuro')
 
         empresas_unicas = reporte_final.index.get_level_values(0).unique()
 
@@ -589,7 +711,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                     text_color = (0,0,0) # Black by default
                     fill_color = (255,255,255) # White by default
 
-                    if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'A Cubrir Semana':
+                    if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
                         if val > 0:
                             fill_color = (198, 239, 206) # Light Green
                             text_color = (0, 97, 0)     # Dark Green
@@ -623,7 +745,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 text_color = (0,0,0) # Black by default
                 fill_color = (252, 228, 214) # Light orange by default
 
-                if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'A Cubrir Semana':
+                if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
                     if val > 0:
                         fill_color = (198, 239, 206) # Light Green
                         text_color = (0, 97, 0)     # Dark Green
@@ -661,7 +783,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             text_color = (0,0,0) # Black by default
             fill_color = (191, 191, 191) # Grey by default
 
-            if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'A Cubrir Semana':
+            if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
                 if isinstance(val, (int, float)):
                     if val > 0:
                         fill_color = (198, 239, 206) # Light Green
@@ -682,6 +804,41 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             pdf.set_fill_color(191, 191, 191)
         pdf.ln()
 
+        # Add a new table for 'Saldos de Cajas' data
+        pdf.ln(10) # Add some vertical space
+        pdf.set_font('Arial', 'B', 10)
+        pdf.cell(0, 10, 'Saldos de Cajas', 0, 1, 'L')
+        pdf.ln(2)
+
+        # Prepare df_cajas for PDF output
+        df_cajas_for_pdf = df_cajas.copy()
+        df_cajas_for_pdf['Banco_Empresa'] = df_cajas_for_pdf['Empresa'] + ' - ' + df_cajas_for_pdf['Banco_Limpio']
+        df_cajas_for_pdf = df_cajas_for_pdf[['Banco_Empresa', 'Importe', 'Detalle']]
+
+        # Define headers and column widths for 'Saldos de Cajas' table
+        cajas_headers = ['Banco / Empresa', 'Importe', 'Detalle']
+        # Adjust widths for landscape A4 (297mm width, ~277mm usable width with 10mm margins)
+        # Proportional widths: Banco_Empresa (70mm), Importe (40mm), Detalle (167mm)
+        cajas_col_widths = [70, 40, 167] # Adjust as necessary to fit page
+
+        # Write headers for 'Saldos de Cajas'
+        pdf.set_fill_color(237, 125, 49) # Orange header color
+        pdf.set_text_color(255, 255, 255) # White text
+        pdf.set_font('Arial', 'B', 8)
+        for i, header in enumerate(cajas_headers):
+            pdf.cell(cajas_col_widths[i], 7, header, 1, 0, 'C', 1)
+        pdf.ln()
+
+        # Write data rows for 'Saldos de Cajas'
+        pdf.set_fill_color(255, 255, 255) # Reset fill color for data rows
+        pdf.set_text_color(0, 0, 0) # Reset text color
+        pdf.set_font('Arial', '', 8)
+        for index, row in df_cajas_for_pdf.iterrows():
+            pdf.cell(cajas_col_widths[0], 6, str(row['Banco_Empresa']), 1, 0, 'L')
+            pdf.cell(cajas_col_widths[1], 6, f"${row['Importe']:,.0f}", 1, 0, 'R')
+            pdf.cell(cajas_col_widths[2], 6, str(row['Detalle']), 1, 0, 'L')
+            pdf.ln()
+
         pdf.output(output_pdf_data)
         output_pdf_data.seek(0)
 
@@ -691,7 +848,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             file_name="Resumen_Cashflow_Formateado.pdf",
             mime="application/pdf"
         )
-        st.success("¡Listo! Archivo generado y disponible para descarga.")
+        st.success("\u00a1Listo! Archivo generado y disponible para descarga.")
 
 else:
     st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
