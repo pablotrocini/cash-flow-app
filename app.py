@@ -335,8 +335,8 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         reporte_final = reporte_final[new_order_cols]
 
         # ========================================== Streamlit Output ==========================================
-st.subheader("Reporte de Cashflow Generado")
-st.dataframe(reporte_final)
+        st.subheader("Reporte de Cashflow Generado")
+        st.dataframe(reporte_final)
 
         st.subheader("Detalle de Saldos de Cajas")
         st.dataframe(df_cajas)
@@ -467,7 +467,7 @@ st.dataframe(reporte_final)
                 # Apply conditional formatting to subtotal rows as well
                 if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
                     if val > 0:
-                        worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
+                            worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
                         worksheet.write(fila_actual, current_col_excel_idx, val, fmt_negative_acv) # Already bold and right-aligned
                     else:
@@ -848,7 +848,7 @@ st.dataframe(reporte_final)
             file_name="Resumen_Cashflow_Formateado.pdf",
             mime="application/pdf"
         )
-        st.success("\u00a1Listo! Archivo generado y disponible para descarga.")
+        st.success("¡Listo! Archivo generado y disponible para descarga.")
 
 else:
     st.info("Por favor, sube los archivos para generar el reporte de cashflow.")
