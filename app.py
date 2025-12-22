@@ -71,7 +71,8 @@ def procesar_archivo(file_object_or_path, col_banco, col_fecha, col_importe, tip
         'Importe': pd.to_numeric(df.iloc[:, col_importe], errors='coerce'),
         'Origen': tipo_origen
     })
-    df_clean = df_clean.dropna(subset=['Importe', 'Banco_Raw'])
+    # Drop rows where 'Importe', 'Banco_Raw', or 'Fecha' are NaN (after coercion)
+    df_clean = df_clean.dropna(subset=['Importe', 'Banco_Raw', 'Fecha'])
 
     if col_detalle is not None:
         df_clean['Detalle'] = df.iloc[:, col_detalle].astype(str).str.strip()
