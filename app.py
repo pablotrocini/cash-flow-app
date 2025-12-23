@@ -216,7 +216,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Add xlsxwriter version check
         try:
             import xlsxwriter
-            st.write(f"XlsxWriter version: {xlsxwriter.__version__}")
+            # st.write(f"XlsxWriter version: {xlsxwriter.__version__}") # Removed as not resolving issue
         except ImportError:
             st.error("Error: xlsxwriter library not found. Please ensure it's installed and redeploy.")
         except AttributeError:
@@ -556,45 +556,54 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Add 'Tabla Dinamica' worksheet
         worksheet_pivot = workbook.add_worksheet('Tabla Dinamica')
 
-        # Define the data range for the pivot table on the 'Base' worksheet
-        # The data range needs to include the header row, so it's from A1
-        if not df_pivot_base.empty and len(df_pivot_base.columns) > 0:
-            last_col_char = chr(ord('A') + len(df_pivot_base.columns) - 1)
-            last_row_num = len(df_pivot_base) + 1
-            base_data_range = f"Base!$A$1:${last_col_char}${last_row_num}"
-
+        # Generate static pivot table using pandas and write to Excel
+        if not df_pivot_base.empty:
             # Define a currency format for pivot table values
             pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'bold': False})
 
-            try:
-                # Add a pivot table to the 'Tabla Dinamica' worksheet
-                workbook.add_pivot_table(
-                    base_data_range, # Source data range
-                    'A4',          # Location of the pivot table on 'Tabla Dinamica' worksheet
-                    {
-                        'rows': [
-                            {'field': 'Empresa'},
-                            {'field': 'Banco_Limpio'},
-                            {'field': 'Fecha', 'date_grouping': 'YM'}
-                        ],
-                        'columns': [], # No columns fields needed as per example structure
-                        'values': [
-                            {'field': 'Importe', 'function': 'sum', 'format': pivot_currency_format}
-                        ],
-                        'filters': [{'field': 'Origen'}],
-                        'excel_2003_colors': False # For modern Excel rendering
-                    }
-                )
+            # Perform pivot operation in pandas
+            df_static_pivot = pd.pivot_table(
+                df_pivot_base, 
+                index=['Empresa', 'Banco_Limpio', pd.Grouper(key='Fecha', freq='M')], 
+                values='Importe', 
+                aggfunc='sum'
+            ).unstack(fill_value=0)
 
-                # Adjust column widths for 'Tabla Dinamica' sheet for better readability
-                worksheet_pivot.set_column('A:A', 20) # Empresa
-                worksheet_pivot.set_column('B:B', 25) # Banco_Limpio
-                worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
-                worksheet_pivot.set_column('D:D', 18) # Sum of Importe
-            except AttributeError as e:
-                worksheet_pivot.write('A1', f"Error al crear la tabla dinámica: {e}. Esto podría deberse a un entorno de Streamlit Cloud o a una versión específica de xlsxwriter. Puede crear la tabla dinámica manualmente desde la hoja 'Base'.", workbook.add_format({'font_color': 'red'}))
-            except Exception as e:
-                worksheet_pivot.write('A1', f"Ocurrió un error inesperado al crear la tabla dinámica: {e}. Puede crear la tabla dinámica manualmente desde la hoja 'Base'.", workbook.add_format({'font_color': 'red'}))
+            # Flatten MultiIndex columns if necessary (e.g., if multiple value columns were used)
+            if isinstance(df_static_pivot.columns, pd.MultiIndex):
+                df_static_pivot.columns = ['_'.join(map(str, col)).replace('Importe_','') for col in df_static_pivot.columns.values] # Flatten column names
+
+            # Convert 'Fecha' index to string for writing (to avoid datetime issues in Excel headers)
+            df_static_pivot.columns = [col.strftime('%Y-%m') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns]
+
+            # Write headers for static pivot table
+            pivot_start_row = 1 # Start writing static pivot data from row 1 (0-indexed)
+            pivot_start_col = 0
+
+            # Write index headers (Empresa, Banco_Limpio)
+            worksheet_pivot.write(pivot_start_row, pivot_start_col, 'Empresa', fmt_header)
+            worksheet_pivot.write(pivot_start_row, pivot_start_col + 1, 'Banco_Limpio', fmt_header)
+
+            # Write month headers
+            for i, col_name in enumerate(df_static_pivot.columns):
+                worksheet_pivot.write(pivot_start_row, pivot_start_col + 2 + i, col_name, fmt_header)
+
+            # Write data rows
+            for r_idx, (idx, row_data) in enumerate(df_static_pivot.iterrows()):
+                current_excel_row = pivot_start_row + 1 + r_idx
+                # Write index values
+                worksheet_pivot.write(current_excel_row, pivot_start_col, idx[0], fmt_text)
+                worksheet_pivot.write(current_excel_row, pivot_start_col + 1, idx[1], fmt_text)
+
+                # Write value columns
+                for c_idx, val in enumerate(row_data):
+                    worksheet_pivot.write(current_excel_row, pivot_start_col + 2 + c_idx, val, pivot_currency_format)
+
+            # Adjust column widths for 'Tabla Dinamica' sheet for better readability
+            worksheet_pivot.set_column(pivot_start_col, pivot_start_col, 20) # Empresa
+            worksheet_pivot.set_column(pivot_start_col + 1, pivot_start_col + 1, 25) # Banco_Limpio
+            worksheet_pivot.set_column(pivot_start_col + 2, pivot_start_col + 2 + len(df_static_pivot.columns), 15) # Value columns
+
         else:
             worksheet_pivot.write('A1', 'No hay datos suficientes para crear una tabla dinámica.', workbook.add_format({'font_color': 'red'}))
 
