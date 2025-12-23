@@ -237,7 +237,8 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         df_total = pd.concat([df_proy, df_cheq, df_impuestos, df_cajas])
 
         # Create df_pivot_base for future payments
-        df_pivot_base = df_total[df_total['Fecha'] >= fecha_hoy].copy()
+        # Exclude 'Caja' origin from df_pivot_base
+        df_pivot_base = df_total[(df_total['Fecha'] >= fecha_hoy) & (df_total['Origen'] != 'Caja')].copy()
         df_pivot_base = df_pivot_base[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']]
 
         # Cargar saldos iniciales del archivo Saldos.xlsx
@@ -323,11 +324,11 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Calcular 'A Cubrir Vencido' como (Saldo Banco - Vencido)
         reporte_final['A Cubrir Vencido'] = reporte_final['Saldo Banco'] - reporte_final['Vencido']
 
-        # Calculate 'Disponible Futuro'
-        reporte_final['Disponible Futuro'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
+        # Calculate 'A Cubrir Semana' (formerly 'Disponible Futuro')
+        reporte_final['A Cubrir Semana'] = reporte_final['Saldo Banco'] - reporte_final['Vencido'] - reporte_final['Total Semana']
 
         # Reordenar columnas para colocar 'Saldo Banco' y 'Saldo FCI' antes de 'Vencido'
-        # y luego 'A Cubrir Vencido' e 'Disponible Futuro' al final.
+        # y luego 'A Cubrir Vencido' e 'A Cubrir Semana' al final.
         cols = reporte_final.columns.tolist()
 
         # Define lists for new column order
@@ -347,18 +348,18 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'Total Semana' in cols: new_order_cols.append('Total Semana')
         if 'Emitidos' in cols: new_order_cols.append('Emitidos')
 
-        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'Disponible Futuro'
+        # 4. Collect other existing columns that are not 'A Cubrir Vencido' or 'A Cubrir Semana'
         #    and have not been added yet. This handles any unforeseen columns and ensures
-        #    ACV and Disponible Futuro are indeed last.
+        #    ACV and ACS are indeed last.
         for col in cols:
-            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'Disponible Futuro':
+            if col not in new_order_cols and col != 'A Cubrir Vencido' and col != 'A Cubrir Semana':
                 new_order_cols.append(col)
 
-        # 5. Append 'A Cubrir Vencido' and 'Disponible Futuro' at the very end in the specified order
+        # 5. Append 'A Cubrir Vencido' and 'A Cubrir Semana' at the very end in the specified order
         if 'A Cubrir Vencido' in cols:
             new_order_cols.append('A Cubrir Vencido')
-        if 'Disponible Futuro' in cols:
-            new_order_cols.append('Disponible Futuro')
+        if 'A Cubrir Semana' in cols:
+            new_order_cols.append('A Cubrir Semana')
 
         reporte_final = reporte_final[new_order_cols]
 
@@ -407,8 +408,13 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             **default_font_properties,
             'border': 1
         })
+        # New format for dates
+        fmt_date = workbook.add_format({
+            **default_font_properties,
+            'num_format': 'dd/mm/yyyy', 'border': 1
+        })
 
-        # New formats for conditional formatting on 'A Cubrir Vencido' and 'Disponible Futuro'
+        # New formats for conditional formatting on 'A Cubrir Vencido' and 'A Cubrir Semana'
         fmt_positive_acv = workbook.add_format({
             **default_font_properties,
             'bold': True, 'bg_color': '#C6EFCE', 'font_color': '#006100', 'num_format': '$ #,##0', 'border': 1, 'align': 'right'
@@ -447,10 +453,10 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'A Cubrir Vencido' in columnas_datos:
             acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
 
-        # Find the index of 'Disponible Futuro' for conditional formatting
-        df_col_idx = -1
-        if 'Disponible Futuro' in columnas_datos:
-            df_col_idx = columnas_datos.index('Disponible Futuro') + 1 # +1 because of the bank column at index 0
+        # Find the index of 'A Cubrir Semana' for conditional formatting
+        acs_col_idx = -1
+        if 'A Cubrir Semana' in columnas_datos:
+            acs_col_idx = columnas_datos.index('A Cubrir Semana') + 1 # +1 because of the bank column at index 0
 
         for i, col_name in enumerate(columnas_datos):
             worksheet.write(fila_actual, i + 1, col_name, fmt_header)
@@ -474,7 +480,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
                 for i, val in enumerate(row):
                     current_col_excel_idx = i + 1
-                    if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
+                    if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                         if val > 0:
                             worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv)
                         elif val < 0:
@@ -493,7 +499,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             for i, val in enumerate(sumas): # Loop through subtotal values
                 current_col_excel_idx = i + 1
                 # Apply conditional formatting to subtotal rows as well
-                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
+                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                     if val > 0:
                             worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
@@ -515,7 +521,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             val = grand_totals_series.get(col_name, "") # Get calculated total or empty string
             current_col_excel_idx = i + 1
             # Apply conditional formatting to grand total row as well
-            if current_col_excel_idx == acv_col_idx or current_col_excel_idx == df_col_idx:
+            if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                 if isinstance(val, (int, float)):
                     if val > 0:
                         worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
@@ -545,6 +551,8 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 # Apply currency format only to 'Importe' column
                 if df_pivot_base.columns[c_idx] == 'Importe':
                     worksheet_base.write(r_idx + 1, c_idx, cell_data, fmt_currency)
+                elif df_pivot_base.columns[c_idx] == 'Fecha':
+                    worksheet_base.write(r_idx + 1, c_idx, cell_data, fmt_date)
                 else:
                     worksheet_base.write(r_idx + 1, c_idx, cell_data, fmt_text)
 
@@ -728,9 +736,9 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         if 'A Cubrir Vencido' in columnas_datos:
             acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
 
-        df_col_idx = -1
-        if 'Disponible Futuro' in columnas_datos:
-            df_col_idx = columnas_datos.index('Disponible Futuro') + 1 # +1 because of the bank column at index 0
+        acs_col_idx = -1
+        if 'A Cubrir Semana' in columnas_datos:
+            acs_col_idx = columnas_datos.index('A Cubrir Semana') + 1 # +1 because of the bank column at index 0
 
         empresas_unicas = reporte_final.index.get_level_values(0).unique()
 
@@ -758,7 +766,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                     text_color = (0,0,0) # Black by default
                     fill_color = (255,255,255) # White by default
 
-                    if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
+                    if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'A Cubrir Semana':
                         if val > 0:
                             fill_color = (198, 239, 206) # Light Green
                             text_color = (0, 97, 0)     # Dark Green
@@ -792,7 +800,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 text_color = (0,0,0) # Black by default
                 fill_color = (252, 228, 214) # Light orange by default
 
-                if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
+                if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'A Cubrir Semana':
                     if val > 0:
                         fill_color = (198, 239, 206) # Light Green
                         text_color = (0, 97, 0)     # Dark Green
@@ -830,7 +838,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             text_color = (0,0,0) # Black by default
             fill_color = (191, 191, 191) # Grey by default
 
-            if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'Disponible Futuro':
+            if col_name_orig == 'A Cubrir Vencido' or col_name_orig == 'A Cubrir Semana':
                 if isinstance(val, (int, float)):
                     if val > 0:
                         fill_color = (198, 239, 206) # Light Green
