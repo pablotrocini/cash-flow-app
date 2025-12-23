@@ -7,7 +7,7 @@ from fpdf import FPDF
 
 # ==========================================
 # PARTE 1: PROCESAMIENTO DE DATOS
-# ==========================================
+# ==========================================d
 
 fecha_hoy = pd.to_datetime(datetime.now().date())
 # fecha_hoy = pd.to_datetime('2025-12-02') # Descomentar para probar con fecha fija
@@ -499,7 +499,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             for i, val in enumerate(sumas): # Loop through subtotal values
                 current_col_excel_idx = i + 1
                 # Apply conditional formatting to subtotal rows as well
-                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
+                if current_col_excel_idx == acs_col_idx or current_col_excel_idx == acs_col_idx:
                     if val > 0:
                             worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
@@ -572,17 +572,18 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             # Perform pivot operation in pandas
             df_static_pivot = pd.pivot_table(
                 df_pivot_base, 
-                index=['Empresa', 'Banco_Limpio', pd.Grouper(key='Fecha', freq='M')], 
+                index=['Empresa', 'Banco_Limpio'], 
+                columns=pd.Grouper(key='Fecha', freq='M'), 
                 values='Importe', 
                 aggfunc='sum'
             ).unstack(fill_value=0)
 
             # Flatten MultiIndex columns if necessary (e.g., if multiple value columns were used)
-            if isinstance(df_static_pivot.columns, pd.MultiIndex):
-                df_static_pivot.columns = ['_'.join(map(str, col)).replace('Importe_','') for col in df_static_pivot.columns.values] # Flatten column names
+            # Ensure the order is chronological for month headers
+            df_static_pivot = df_static_pivot.reindex(columns=sorted(df_static_pivot.columns), level='Fecha')
 
-            # Convert 'Fecha' index to string for writing (to avoid datetime issues in Excel headers)
-            df_static_pivot.columns = [col.strftime('%Y-%m') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns]
+            if isinstance(df_static_pivot.columns, pd.MultiIndex):
+                df_static_pivot.columns = [col.strftime('%m/%d/%Y') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns.get_level_values('Fecha')] # Flatten and format month headers
 
             # Write headers for static pivot table
             pivot_start_row = 1 # Start writing static pivot data from row 1 (0-indexed)
@@ -592,18 +593,20 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             worksheet_pivot.write(pivot_start_row, pivot_start_col, 'Empresa', fmt_header)
             worksheet_pivot.write(pivot_start_row, pivot_start_col + 1, 'Banco_Limpio', fmt_header)
 
-            # Write month headers
+            # Write month headers with date format and borders
             for i, col_name in enumerate(df_static_pivot.columns):
-                worksheet_pivot.write(pivot_start_row, pivot_start_col + 2 + i, col_name, fmt_header)
+                # Use fmt_date for header cells if they are dates, otherwise fmt_header
+                header_format = fmt_date if isinstance(col_name, pd.Timestamp) else fmt_header
+                worksheet_pivot.write(pivot_start_row, pivot_start_col + 2 + i, col_name, header_format)
 
-            # Write data rows
+            # Write data rows with borders
             for r_idx, (idx, row_data) in enumerate(df_static_pivot.iterrows()):
                 current_excel_row = pivot_start_row + 1 + r_idx
-                # Write index values
+                # Write index values with borders
                 worksheet_pivot.write(current_excel_row, pivot_start_col, idx[0], fmt_text)
                 worksheet_pivot.write(current_excel_row, pivot_start_col + 1, idx[1], fmt_text)
 
-                # Write value columns
+                # Write value columns with currency format and borders
                 for c_idx, val in enumerate(row_data):
                     worksheet_pivot.write(current_excel_row, pivot_start_col + 2 + c_idx, val, pivot_currency_format)
 
