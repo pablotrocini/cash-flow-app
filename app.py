@@ -133,12 +133,21 @@ def procesar_archivo_cajas(file_object_or_path):
     # Read the Excel file, skipping the first 6 rows (header is at row 7, which is index 6)
     df = pd.read_excel(file_object_or_path, header=6)
 
+    st.write("--- Debug df_cajas: Raw Data Read ---")
+    st.dataframe(df.head())
+    st.write(f"Raw df shape: {df.shape}")
+
     # Create a new DataFrame from the relevant columns
     df_cajas_clean = pd.DataFrame({
         'Numero_Caja': pd.to_numeric(df.iloc[:, 0], errors='coerce'), # Column A
         'Nombre_Caja': df.iloc[:, 1].astype(str).str.strip(),        # Column B
         'Saldo_Caja': pd.to_numeric(df.iloc[:, 2], errors='coerce')  # Column C
     })
+
+    st.write("--- Debug df_cajas: After Initial Extraction ---")
+    st.dataframe(df_cajas_clean.head())
+    st.write(f"df_cajas_clean shape: {df_cajas_clean.shape}")
+    st.write(f"Unique Numero_Caja before filtering: {df_cajas_clean['Numero_Caja'].unique()}")
 
     # Define the list of allowed box numbers
     allowed_box_numbers = [1, 6, 11, 30, 74, 101, 111, 121, 131, 141, 154, 161]
@@ -147,6 +156,11 @@ def procesar_archivo_cajas(file_object_or_path):
     df_cajas_clean = df_cajas_clean[
         df_cajas_clean['Numero_Caja'].isin(allowed_box_numbers)
     ].dropna(subset=['Saldo_Caja']).copy()
+
+    st.write("--- Debug df_cajas: After Filtering and dropna ---")
+    st.dataframe(df_cajas_clean.head())
+    st.write(f"df_cajas_clean shape after filter: {df_cajas_clean.shape}")
+    st.write(f"Unique Numero_Caja after filtering: {df_cajas_clean['Numero_Caja'].unique()}")
 
     # Transform df_cajas_clean to match the desired schema
     df_cajas_output = pd.DataFrame({
@@ -158,6 +172,10 @@ def procesar_archivo_cajas(file_object_or_path):
         'Detalle': df_cajas_clean['Nombre_Caja'],
         'Numero_Cheque': ''
     })
+
+    st.write("--- Debug df_cajas: Final Output ---")
+    st.dataframe(df_cajas_output.head())
+    st.write(f"df_cajas_output shape: {df_cajas_output.shape}")
 
     return df_cajas_output
 
@@ -698,12 +716,12 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # Get indices for conditional formatting columns in the `reporte_final` (original) DataFrame
         acv_col_idx = -1
-        if 'A Cubrir Vencido' in reporte_final.columns:
-            acv_col_idx = reporte_final.columns.get_loc('A Cubrir Vencido')
+        if 'A Cubrir Vencido' in columnas_datos:
+            acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
 
         df_col_idx = -1
-        if 'Disponible Futuro' in reporte_final.columns:
-            df_col_idx = reporte_final.columns.get_loc('Disponible Futuro')
+        if 'Disponible Futuro' in columnas_datos:
+            df_col_idx = columnas_datos.index('Disponible Futuro') + 1 # +1 because of the bank column at index 0
 
         empresas_unicas = reporte_final.index.get_level_values(0).unique()
 
