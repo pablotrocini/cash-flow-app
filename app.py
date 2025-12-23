@@ -141,7 +141,7 @@ def procesar_archivo_cajas(file_object_or_path):
     df_cajas_clean = pd.DataFrame({
         'Numero_Caja': pd.to_numeric(df.iloc[:, 0], errors='coerce'), # Column A
         'Nombre_Caja': df.iloc[:, 1].astype(str).str.strip(),        # Column B
-        'Saldo_Caja': pd.to_numeric(df.iloc[:, 2], errors='coerce')  # Column C
+        'Saldo_Caja': pd.to_numeric(df.iloc[:, 3], errors='coerce')  # Corrected: Column D (index 3) for Saldo_Caja
     })
 
     st.write("--- Debug df_cajas: After Initial Extraction ---")
