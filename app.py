@@ -499,7 +499,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             for i, val in enumerate(sumas): # Loop through subtotal values
                 current_col_excel_idx = i + 1
                 # Apply conditional formatting to subtotal rows as well
-                if current_col_excel_idx == acs_col_idx or current_col_excel_idx == acs_col_idx:
+                if current_col_excel_idx == acv_col_idx or current_col_excel_idx == acs_col_idx:
                     if val > 0:
                             worksheet.write(fila_actual, current_col_excel_idx, val, fmt_positive_acv) # Already bold and right-aligned
                     elif val < 0:
@@ -567,7 +567,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         # Generate static pivot table using pandas and write to Excel
         if not df_pivot_base.empty:
             # Define a currency format for pivot table values
-            pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'bold': False})
+            pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'border': 1})
 
             # Perform pivot operation in pandas
             df_static_pivot = pd.pivot_table(
@@ -578,26 +578,34 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 aggfunc='sum'
             ).unstack(fill_value=0)
 
-            # Flatten MultiIndex columns if necessary (e.g., if multiple value columns were used)
             # Ensure the order is chronological for month headers
             df_static_pivot = df_static_pivot.reindex(columns=sorted(df_static_pivot.columns), level='Fecha')
 
+            # Flatten MultiIndex columns if necessary and format as dd/mm/yyyy
             if isinstance(df_static_pivot.columns, pd.MultiIndex):
-                df_static_pivot.columns = [col.strftime('%m/%d/%Y') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns.get_level_values('Fecha')] # Flatten and format month headers
+                # Extract Timestamps and format them as strings 'mm/dd/yyyy' to be written as header text
+                df_static_pivot.columns = [col.strftime('%d/%m/%Y') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns.get_level_values('Fecha')] 
+            
+            # Sort column names (which are now strings) to ensure left-to-right order by date
+            # This requires converting them back to datetime for sorting, then back to string
+            try:
+                sorted_cols = sorted(df_static_pivot.columns, key=lambda x: datetime.strptime(str(x), '%d/%m/%Y'))
+                df_static_pivot = df_static_pivot[sorted_cols]
+            except ValueError:
+                # Fallback if conversion fails (e.g., non-date columns)
+                df_static_pivot = df_static_pivot[sorted(df_static_pivot.columns)]
 
             # Write headers for static pivot table
             pivot_start_row = 1 # Start writing static pivot data from row 1 (0-indexed)
             pivot_start_col = 0
 
-            # Write index headers (Empresa, Banco_Limpio)
+            # Write index headers (Empresa, Banco_Limpio) with borders
             worksheet_pivot.write(pivot_start_row, pivot_start_col, 'Empresa', fmt_header)
             worksheet_pivot.write(pivot_start_row, pivot_start_col + 1, 'Banco_Limpio', fmt_header)
 
-            # Write month headers with date format and borders
+            # Write month headers with fmt_header (which includes border and bold) and the pre-formatted string date
             for i, col_name in enumerate(df_static_pivot.columns):
-                # Use fmt_date for header cells if they are dates, otherwise fmt_header
-                header_format = fmt_date if isinstance(col_name, pd.Timestamp) else fmt_header
-                worksheet_pivot.write(pivot_start_row, pivot_start_col + 2 + i, col_name, header_format)
+                worksheet_pivot.write(pivot_start_row, pivot_start_col + 2 + i, col_name, fmt_header)
 
             # Write data rows with borders
             for r_idx, (idx, row_data) in enumerate(df_static_pivot.iterrows()):
