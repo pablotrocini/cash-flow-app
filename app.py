@@ -530,9 +530,9 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         fila_actual += 1
 
-        # Ajustar ancho de columnas
-        worksheet.set_column(0, 0, 25)
-        worksheet.set_column(1, len(columnas_datos), 15)
+        # Ajustar ancho de columnas (main report area)
+        worksheet.set_column(0, 0, 25) # Column A (Etiquetas de fila)
+        worksheet.set_column(1, len(columnas_datos), 18) # All data columns (B onwards) to a more generous 18 width
 
         # Add 'Base' worksheet and write df_pivot_base
         worksheet_base = workbook.add_worksheet('Base')
@@ -592,11 +592,11 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 worksheet_pivot.set_column('C:C', 15) # Fecha (grouped YM)
                 worksheet_pivot.set_column('D:D', 18) # Sum of Importe
             except AttributeError as e:
-                worksheet_pivot.write('A1', f'Error al crear la tabla dinámica: {e}. Verifique la versión de xlsxwriter o la definición de la tabla.', workbook.add_format({'font_color': 'red'}))
+                worksheet_pivot.write('A1', f"Error al crear la tabla dinámica: {e}. Esto podría deberse a un entorno de Streamlit Cloud o a una versión específica de xlsxwriter. Puede crear la tabla dinámica manualmente desde la hoja 'Base'.", workbook.add_format({'font_color': 'red'}))
             except Exception as e:
-                worksheet_pivot.write('A1', f'Ocurrió un error inesperado al crear la tabla dinámica: {e}.', workbook.add_format({'font_color': 'red'}))
+                worksheet_pivot.write('A1', f"Ocurrió un error inesperado al crear la tabla dinámica: {e}. Puede crear la tabla dinámica manualmente desde la hoja 'Base'.", workbook.add_format({'font_color': 'red'}))
         else:
-            worksheet_pivot.write('A1', 'No hay datos suficientes para crear una tabla dinámica.')
+            worksheet_pivot.write('A1', 'No hay datos suficientes para crear una tabla dinámica.', workbook.add_format({'font_color': 'red'}))
 
         # Add 'Saldos Cajas' worksheet and write df_cajas
         worksheet_cajas = workbook.add_worksheet('Saldos Cajas')
