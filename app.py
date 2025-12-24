@@ -114,7 +114,7 @@ def procesar_archivo_impuestos(file_object_or_path):
     df_impuestos_clean['Numero_Cheque'] = ''
 
     # Create mapping from nombres_df for 'Empresa' to 'Banco_Limpio'
-    # Group by 'EMPRESA' and take the first 'Proyeccion Pagos' as the default 'Banco_Limpio'
+    # Group by 'EMPRESA' and take the first 'Proyeccion Pagos' as the default 'Banco_Limpio'%
     empresa_to_default_bank = nombres_df.groupby('EMPRESA')['Proyeccion Pagos'].first().to_dict()
 
     # Apply mapping to create 'Banco_Limpio' and handle 'UNKNOWN'
@@ -133,49 +133,49 @@ def procesar_archivo_cajas(file_object_or_path):
     # Read the Excel file, skipping the first 6 rows (header is at row 7, which is index 6)
     df = pd.read_excel(file_object_or_path, header=6)
 
-    st.write("--- Debug df_cajas: Raw Data Read ---")
-    st.dataframe(df.head())
-    st.write(f"Raw df shape: {df.shape}")
-
-    # Create a new DataFrame from the relevant columns
+    # Create a new DataFrame from the relevant columns (B and D, original indices 1 and 3)
     df_cajas_clean = pd.DataFrame({
-        'Numero_Caja': pd.to_numeric(df.iloc[:, 0], errors='coerce'), # Column A
-        'Nombre_Caja': df.iloc[:, 1].astype(str).str.strip(),        # Column B
-        'Saldo_Caja': pd.to_numeric(df.iloc[:, 3], errors='coerce')  # Corrected: Column D (index 3) for Saldo_Caja
+        'Nombre_Caja': df.iloc[:, 1].astype(str).str.strip(),        # Original Column B
+        'Saldo_Caja': pd.to_numeric(df.iloc[:, 3], errors='coerce')  # Original Column D
     })
 
-    st.write("--- Debug df_cajas: After Initial Extraction ---")
-    st.dataframe(df_cajas_clean.head())
-    st.write(f"df_cajas_clean shape: {df_cajas_clean.shape}")
-    st.write(f"Unique Numero_Caja before filtering: {df_cajas_clean['Numero_Caja'].unique()}")
+    # Define the list of allowed box names (instead of numbers)
+    allowed_box_names = [
+        'TESORERIA',
+        'SMT - ENCARGADO',
+        'MPZ ENCARGADO',
+        'AKN - ENCARGADO',
+        'ZT2 - ENCARGADO',
+        'BRC - ENCARGADO',
+        'BR2 - ENCARGADO',
+        'RGL - ENCARGADO',
+        'RG2 - ENCARGADO',
+        'RESERVA'
+    ]
 
-    # Define the list of allowed box numbers
-    allowed_box_numbers = [1, 6, 11, 30, 74, 101, 111, 121, 131, 141, 154, 161]
-
-    # Filter the DataFrame to include only allowed box numbers and drop NaN 'Saldo_Caja' values
+    # Filter the DataFrame to include only allowed box names and drop NaN 'Saldo_Caja' values
     df_cajas_clean = df_cajas_clean[
-        df_cajas_clean['Numero_Caja'].isin(allowed_box_numbers)
+        df_cajas_clean['Nombre_Caja'].isin(allowed_box_names)
     ].dropna(subset=['Saldo_Caja']).copy()
 
-    st.write("--- Debug df_cajas: After Filtering and dropna ---")
-    st.dataframe(df_cajas_clean.head())
-    st.write(f"df_cajas_clean shape after filter: {df_cajas_clean.shape}")
-    st.write(f"Unique Numero_Caja after filtering: {df_cajas_clean['Numero_Caja'].unique()}")
+    # Order the DataFrame by the specified list of box names
+    df_cajas_clean['Nombre_Caja'] = pd.Categorical(df_cajas_clean['Nombre_Caja'], categories=allowed_box_names, ordered=True)
+    df_cajas_clean = df_cajas_clean.sort_values('Nombre_Caja')
 
     # Transform df_cajas_clean to match the desired schema
     df_cajas_output = pd.DataFrame({
-        'Empresa': df_cajas_clean['Nombre_Caja'],
-        'Banco_Limpio': 'Caja ' + df_cajas_clean['Nombre_Caja'],
+        'CAJA': df_cajas_clean['Nombre_Caja'], # Renamed to CAJA
+        'Empresa': df_cajas_clean['Nombre_Caja'], # Defaulting Empresa to Caja Name for now
+        'Banco_Limpio': 'Caja ' + df_cajas_clean['Nombre_Caja'], # Consistent naming
         'Fecha': fecha_hoy,
         'Importe': df_cajas_clean['Saldo_Caja'],
         'Origen': 'Caja',
-        'Detalle': df_cajas_clean['Nombre_Caja'],
+        'Detalle': df_cajas_clean['Nombre_Caja'], # Using Caja Name as Detalle
         'Numero_Cheque': ''
     })
 
-    st.write("--- Debug df_cajas: Final Output ---")
-    st.dataframe(df_cajas_output.head())
-    st.write(f"df_cajas_output shape: {df_cajas_output.shape}")
+    # Select and reorder columns for final output, ensuring 'CAJA' is the primary identifier
+    df_cajas_output = df_cajas_output[['CAJA', 'Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']]
 
     return df_cajas_output
 
@@ -229,39 +229,17 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         archivo_cajas_io = io.BytesIO(uploaded_file_cajas.getvalue())
 
         df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df, col_detalle=6)
-        # Removed debug print: st.write("--- Debug df_proy ---")
-        # Removed debug print: st.dataframe(df_proy.head())
-        # Removed debug print: st.write(f"df_proy shape: {df_proy.shape}")
-
         df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df, col_detalle=10, col_numero_cheque=2)
-        # Removed debug print: st.write("--- Debug df_cheq ---")
-        # Removed debug print: st.dataframe(df_cheq.head())
-        # Removed debug print: st.write(f"df_cheq shape: {df_cheq.shape}")
-
         df_impuestos = procesar_archivo_impuestos(archivo_impuestos_io)
-        # Removed debug print: st.write("--- Debug df_impuestos ---")
-        # Removed debug print: st.dataframe(df_impuestos.head())
-        # Removed debug print: st.write(f"df_impuestos shape: {df_impuestos.shape}")
-
         df_cajas = procesar_archivo_cajas(archivo_cajas_io)
-        # Debug prints for df_cajas are already inside its function.
 
         # Create df_total from the three processed dataframes
         df_total = pd.concat([df_proy, df_cheq, df_impuestos, df_cajas])
-        # Removed debug print: st.write("--- Debug df_total ---")
-        # Removed debug print: st.dataframe(df_total.head())
-        # Removed debug print: st.write(f"df_total shape: {df_total.shape}")
 
         # Create df_pivot_base for future payments
         # Exclude 'Caja' origin from df_pivot_base
         df_pivot_base = df_total[(df_total['Fecha'] >= fecha_hoy) & (df_total['Origen'] != 'Caja')].copy()
         df_pivot_base = df_pivot_base[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']]
-
-        # --- Debug: Display df_pivot_base in Streamlit ---
-        st.subheader("Datos Base para Tabla Dinámica (Futuros Pagos)")
-        st.dataframe(df_pivot_base.head())
-        st.write(f"Shape de df_pivot_base: {df_pivot_base.shape}")
-        # ------------------------------------------------
 
         # Cargar saldos iniciales del archivo Saldos.xlsx
         df_saldos = pd.read_excel(archivo_saldos_io)
@@ -390,7 +368,8 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         st.dataframe(reporte_final)
 
         st.subheader("Detalle de Saldos de Cajas")
-        st.dataframe(df_cajas)
+        # Only display the 'CAJA' and 'Importe' columns from df_cajas as requested for Streamlit UI
+        st.dataframe(df_cajas[['CAJA', 'Importe', 'Detalle']]) # Display only relevant columns
 
         # Para la descarga del Excel
         output_excel_data = io.BytesIO()
@@ -560,7 +539,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # Ajustar ancho de columnas (main report area)
         worksheet.set_column(0, 0, 25) # Column A (Etiquetas de fila)
-        worksheet.set_column(1, len(columnas_datos), 18) # All data columns (B onwards) to a more generous 18 width
+        worksheet.set_column(1, len(columnas_datos), 15) # All data columns (B onwards) to a more generous 15 width
 
         # Add 'Base' worksheet and write df_pivot_base
         worksheet_base = workbook.add_worksheet('Base')
@@ -584,90 +563,26 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
             worksheet_base.set_column(i, i, max_len + 2)
 
         # Add 'Tabla Dinamica' worksheet
-        worksheet_pivot = workbook.add_worksheet('Tabla Dinamica')
-
-        # Generate static pivot table using pandas and write to Excel
-        if not df_pivot_base.empty:
-            # Define a currency format for pivot table values
-            pivot_currency_format = workbook.add_format({**default_font_properties, 'num_format': '$ #,##0', 'border': 1})
-
-            # Perform pivot operation in pandas
-            df_static_pivot = pd.pivot_table(
-                df_pivot_base,
-                index=['Empresa', 'Banco_Limpio'],
-                columns=pd.Grouper(key='Fecha', freq='M'),
-                values='Importe',
-                aggfunc='sum'
-            ).unstack(fill_value=0)
-
-            st.write("--- Debug df_static_pivot: Before Writing to Excel ---")
-            st.dataframe(df_static_pivot.head())
-            st.write(f"df_static_pivot shape: {df_static_pivot.shape}")
-
-            # Ensure the order is chronological for month headers
-            df_static_pivot = df_static_pivot.reindex(columns=sorted(df_static_pivot.columns), level='Fecha')
-
-            # Flatten MultiIndex columns if necessary and format as Jan-2025
-            if isinstance(df_static_pivot.columns, pd.MultiIndex):
-                # Extract Timestamps and format them as strings 'Jan-2025'
-                df_static_pivot.columns = [col[1].strftime('%b-%Y') if isinstance(col[1], pd.Timestamp) else str(col) for col in df_static_pivot.columns]
-
-            # Sort column names (which are now strings) to ensure left-to-right order by date
-            # This requires converting them back to datetime for sorting, then back to string
-            try:
-                sorted_cols = sorted(df_static_pivot.columns, key=lambda x: datetime.strptime(str(x), '%b-%Y'))
-                df_static_pivot = df_static_pivot[sorted_cols]
-            except ValueError:
-                # Fallback if conversion fails (e.g., non-date columns)
-                df_static_pivot = df_static_pivot[sorted(df_static_pivot.columns)]
-
-            # Write headers for static pivot table
-            pivot_start_row = 1 # Start writing static pivot data from row 1 (0-indexed)
-            pivot_start_col = 0
-
-            # Write index headers (Empresa, Banco_Limpio) with borders
-            worksheet_pivot.write(pivot_start_row, pivot_start_col, 'Empresa', fmt_header)
-            worksheet_pivot.write(pivot_start_row, pivot_start_col + 1, 'Banco_Limpio', fmt_header)
-
-            # Write month headers with fmt_header (which includes border and bold) and the pre-formatted string date
-            for i, col_name in enumerate(df_static_pivot.columns):
-                worksheet_pivot.write(pivot_start_row, pivot_start_col + 2 + i, col_name, fmt_header)
-
-            # Write data rows with borders
-            for r_idx, (idx, row_data) in enumerate(df_static_pivot.iterrows()):
-                current_excel_row = pivot_start_row + 1 + r_idx
-                # Write index values with borders
-                worksheet_pivot.write(current_excel_row, pivot_start_col, idx[0], fmt_text)
-                worksheet_pivot.write(current_excel_row, pivot_start_col + 1, idx[1], fmt_text)
-
-                # Write value columns with currency format and borders
-                for c_idx, val in enumerate(row_data):
-                    worksheet_pivot.write(current_excel_row, pivot_start_col + 2 + c_idx, val, pivot_currency_format)
-
-            # Adjust column widths for 'Tabla Dinamica' sheet for better readability
-            worksheet_pivot.set_column(pivot_start_col, pivot_start_col, 20) # Empresa
-            worksheet_pivot.set_column(pivot_start_col + 1, pivot_start_col + 1, 25) # Banco_Limpio
-            worksheet_pivot.set_column(pivot_start_col + 2, pivot_start_col + 2 + len(df_static_pivot.columns), 15) # Value columns
-
-        else:
-            worksheet_pivot.write('A1', 'No hay datos suficientes para crear una tabla dinámica.', workbook.add_format({'font_color': 'red'}))
+        # Note: The original request to remove this worksheet implies we should not be creating it.
+        # If the user wishes to add it back, this section would be uncommented/re-added.
 
         # Add 'Saldos Cajas' worksheet and write df_cajas
         worksheet_cajas = workbook.add_worksheet('Saldos Cajas')
-        # Write headers
-        for col_num, value in enumerate(df_cajas.columns.values):
+        # Write headers for the selected columns (CAJA, Importe, Detalle)
+        cajas_display_columns = ['CAJA', 'Importe', 'Detalle']
+        for col_num, value in enumerate(cajas_display_columns):
             worksheet_cajas.write(0, col_num, value, fmt_header)
-        # Write data
-        for r_idx, row_data in enumerate(df_cajas.values):
+        # Write data for the selected columns
+        for r_idx, row_data in enumerate(df_cajas[cajas_display_columns].values):
             for c_idx, cell_data in enumerate(row_data):
                 # Apply currency format only to 'Importe' column
-                if df_cajas.columns[c_idx] == 'Importe':
+                if cajas_display_columns[c_idx] == 'Importe':
                     worksheet_cajas.write(r_idx + 1, c_idx, cell_data, fmt_currency)
                 else:
                     worksheet_cajas.write(r_idx + 1, c_idx, cell_data, fmt_text)
 
         # Adjust column widths for 'Saldos Cajas' sheet
-        for i, col in enumerate(df_cajas.columns):
+        for i, col in enumerate(cajas_display_columns):
             max_len = max(df_cajas[col].astype(str).map(len).max(), len(col))
             worksheet_cajas.set_column(i, i, max_len + 2)
 
@@ -903,14 +818,13 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         pdf.ln(2)
 
         # Prepare df_cajas for PDF output
-        df_cajas_for_pdf = df_cajas.copy()
-        df_cajas_for_pdf['Banco_Empresa'] = df_cajas_for_pdf['Empresa'] + ' - ' + df_cajas_for_pdf['Banco_Limpio']
-        df_cajas_for_pdf = df_cajas_for_pdf[['Banco_Empresa', 'Importe', 'Detalle']]
+        # Select only the columns that are relevant for the PDF output (CAJA, Importe, Detalle)
+        df_cajas_for_pdf = df_cajas[['CAJA', 'Importe', 'Detalle']].copy()
 
         # Define headers and column widths for 'Saldos de Cajas' table
-        cajas_headers = ['Banco / Empresa', 'Importe', 'Detalle']
+        cajas_headers = ['CAJA', 'Importe', 'Detalle']
         # Adjust widths for landscape A4 (297mm width, ~277mm usable width with 10mm margins)
-        # Proportional widths: Banco_Empresa (70mm), Importe (40mm), Detalle (167mm)
+        # Proportional widths: CAJA (70mm), Importe (40mm), Detalle (167mm)
         cajas_col_widths = [70, 40, 167] # Adjust as necessary to fit page
 
         # Write headers for 'Saldos de Cajas'
@@ -926,7 +840,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         pdf.set_text_color(0, 0, 0) # Reset text color
         pdf.set_font('Arial', '', 8)
         for index, row in df_cajas_for_pdf.iterrows():
-            pdf.cell(cajas_col_widths[0], 6, str(row['Banco_Empresa']), 1, 0, 'L')
+            pdf.cell(cajas_col_widths[0], 6, str(row['CAJA']), 1, 0, 'L')
             pdf.cell(cajas_col_widths[1], 6, f"${row['Importe']:,.0f}", 1, 0, 'R')
             pdf.cell(cajas_col_widths[2], 6, str(row['Detalle']), 1, 0, 'L')
             pdf.ln()
