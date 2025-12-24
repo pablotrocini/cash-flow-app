@@ -7,7 +7,7 @@ from fpdf import FPDF
 
 # ==========================================
 # PARTE 1: PROCESAMIENTO DE DATOS
-# ==========================================d
+# ==========================================
 
 fecha_hoy = pd.to_datetime(datetime.now().date())
 # fecha_hoy = pd.to_datetime('2025-12-02') # Descomentar para probar con fecha fija
@@ -229,17 +229,39 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
         archivo_cajas_io = io.BytesIO(uploaded_file_cajas.getvalue())
 
         df_proy = procesar_archivo(archivo_proyeccion_io, 0, 2, 9, 'Proyeccion', nombres_df, col_detalle=6)
+        # Removed debug print: st.write("--- Debug df_proy ---")
+        # Removed debug print: st.dataframe(df_proy.head())
+        # Removed debug print: st.write(f"df_proy shape: {df_proy.shape}")
+
         df_cheq = procesar_archivo(archivo_cheques_io, 3, 1, 14, 'Cheques', nombres_df, col_detalle=10, col_numero_cheque=2)
+        # Removed debug print: st.write("--- Debug df_cheq ---")
+        # Removed debug print: st.dataframe(df_cheq.head())
+        # Removed debug print: st.write(f"df_cheq shape: {df_cheq.shape}")
+
         df_impuestos = procesar_archivo_impuestos(archivo_impuestos_io)
+        # Removed debug print: st.write("--- Debug df_impuestos ---")
+        # Removed debug print: st.dataframe(df_impuestos.head())
+        # Removed debug print: st.write(f"df_impuestos shape: {df_impuestos.shape}")
+
         df_cajas = procesar_archivo_cajas(archivo_cajas_io)
+        # Debug prints for df_cajas are already inside its function.
 
         # Create df_total from the three processed dataframes
         df_total = pd.concat([df_proy, df_cheq, df_impuestos, df_cajas])
+        # Removed debug print: st.write("--- Debug df_total ---")
+        # Removed debug print: st.dataframe(df_total.head())
+        # Removed debug print: st.write(f"df_total shape: {df_total.shape}")
 
         # Create df_pivot_base for future payments
         # Exclude 'Caja' origin from df_pivot_base
         df_pivot_base = df_total[(df_total['Fecha'] >= fecha_hoy) & (df_total['Origen'] != 'Caja')].copy()
         df_pivot_base = df_pivot_base[['Empresa', 'Banco_Limpio', 'Fecha', 'Importe', 'Origen', 'Detalle', 'Numero_Cheque']]
+
+        # --- Debug: Display df_pivot_base in Streamlit ---
+        st.subheader("Datos Base para Tabla Dinámica (Futuros Pagos)")
+        st.dataframe(df_pivot_base.head())
+        st.write(f"Shape de df_pivot_base: {df_pivot_base.shape}")
+        # ------------------------------------------------
 
         # Cargar saldos iniciales del archivo Saldos.xlsx
         df_saldos = pd.read_excel(archivo_saldos_io)
@@ -578,18 +600,22 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
                 aggfunc='sum'
             ).unstack(fill_value=0)
 
+            st.write("--- Debug df_static_pivot: Before Writing to Excel ---")
+            st.dataframe(df_static_pivot.head())
+            st.write(f"df_static_pivot shape: {df_static_pivot.shape}")
+
             # Ensure the order is chronological for month headers
             df_static_pivot = df_static_pivot.reindex(columns=sorted(df_static_pivot.columns), level='Fecha')
 
-            # Flatten MultiIndex columns if necessary and format as dd/mm/yyyy
+            # Flatten MultiIndex columns if necessary and format as Jan-2025
             if isinstance(df_static_pivot.columns, pd.MultiIndex):
                 # Extract Timestamps and format them as strings 'dd/mm/yyyy' to be written as header text
-                df_static_pivot.columns = [col.strftime('%d/%m/%Y') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns.get_level_values('Fecha')]
+                df_static_pivot.columns = [col[1].strftime('%d-%b') if isinstance(col[1], pd.Timestamp) else str(col) for col in df_static_pivot.columns]
 
             # Sort column names (which are now strings) to ensure left-to-right order by date
             # This requires converting them back to datetime for sorting, then back to string
             try:
-                sorted_cols = sorted(df_static_pivot.columns, key=lambda x: datetime.strptime(str(x), '%d/%m/%Y'))
+                sorted_cols = sorted(df_static_pivot.columns, key=lambda x: datetime.strptime(str(x), '%d-%b'))
                 df_static_pivot = df_static_pivot[sorted_cols]
             except ValueError:
                 # Fallback if conversion fails (e.g., non-date columns)
@@ -744,12 +770,12 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # Get indices for conditional formatting columns in the `reporte_final` (original) DataFrame
         acv_col_idx = -1
-        if 'A Cubrir Vencido' in columnas_datos:
-            acv_col_idx = columnas_datos.index('A Cubrir Vencido') + 1 # +1 because of the bank column at index 0
+        if 'A Cubrir Vencido' in reporte_final.columns:
+            acv_col_idx = reporte_final.columns.get_loc('A Cubrir Vencido')
 
         acs_col_idx = -1
-        if 'A Cubrir Semana' in columnas_datos:
-            acs_col_idx = columnas_datos.index('A Cubrir Semana') + 1 # +1 because of the bank column at index 0
+        if 'A Cubrir Semana' in reporte_final.columns:
+            acs_col_idx = reporte_final.columns.get_loc('A Cubrir Semana')
 
         empresas_unicas = reporte_final.index.get_level_values(0).unique()
 
