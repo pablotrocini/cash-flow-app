@@ -285,7 +285,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # 1. Vencido
         filtro_vencido = df_total['Fecha'] < fecha_hoy
-        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
+        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum())
         df_vencido.columns = ['Vencido']
 
         # 2. Semana (Días)
@@ -609,13 +609,13 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
             # Flatten MultiIndex columns if necessary and format as Jan-2025
             if isinstance(df_static_pivot.columns, pd.MultiIndex):
-                # Extract Timestamps and format them as strings 'dd/mm/yyyy' to be written as header text
-                df_static_pivot.columns = [col[1].strftime('%d-%b') if isinstance(col[1], pd.Timestamp) else str(col) for col in df_static_pivot.columns]
+                # Extract Timestamps and format them as strings 'Jan-2025'
+                df_static_pivot.columns = [col[1].strftime('%b-%Y') if isinstance(col[1], pd.Timestamp) else str(col) for col in df_static_pivot.columns]
 
             # Sort column names (which are now strings) to ensure left-to-right order by date
             # This requires converting them back to datetime for sorting, then back to string
             try:
-                sorted_cols = sorted(df_static_pivot.columns, key=lambda x: datetime.strptime(str(x), '%d-%b'))
+                sorted_cols = sorted(df_static_pivot.columns, key=lambda x: datetime.strptime(str(x), '%b-%Y'))
                 df_static_pivot = df_static_pivot[sorted_cols]
             except ValueError:
                 # Fallback if conversion fails (e.g., non-date columns)
