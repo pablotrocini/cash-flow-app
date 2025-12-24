@@ -285,7 +285,7 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
         # 1. Vencido
         filtro_vencido = df_total['Fecha'] < fecha_hoy
-        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum())
+        df_vencido = df_total[filtro_vencido].groupby(['Empresa', 'Banco_Limpio'])[['Importe']].sum()
         df_vencido.columns = ['Vencido']
 
         # 2. Semana (Días)
