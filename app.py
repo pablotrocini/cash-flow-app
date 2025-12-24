@@ -1,3 +1,4 @@
+%%writefile app.py
 
 import pandas as pd
 from datetime import datetime, timedelta
@@ -571,10 +572,10 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
             # Perform pivot operation in pandas
             df_static_pivot = pd.pivot_table(
-                df_pivot_base, 
-                index=['Empresa', 'Banco_Limpio'], 
-                columns=pd.Grouper(key='Fecha', freq='M'), 
-                values='Importe', 
+                df_pivot_base,
+                index=['Empresa', 'Banco_Limpio'],
+                columns=pd.Grouper(key='Fecha', freq='M'),
+                values='Importe',
                 aggfunc='sum'
             ).unstack(fill_value=0)
 
@@ -583,9 +584,9 @@ if uploaded_file_proyeccion is not None and uploaded_file_cheques is not None an
 
             # Flatten MultiIndex columns if necessary and format as dd/mm/yyyy
             if isinstance(df_static_pivot.columns, pd.MultiIndex):
-                # Extract Timestamps and format them as strings 'mm/dd/yyyy' to be written as header text
-                df_static_pivot.columns = [col.strftime('%d/%m/%Y') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns.get_level_values('Fecha')] 
-            
+                # Extract Timestamps and format them as strings 'dd/mm/yyyy' to be written as header text
+                df_static_pivot.columns = [col.strftime('%d/%m/%Y') if isinstance(col, pd.Timestamp) else col for col in df_static_pivot.columns.get_level_values('Fecha')]
+
             # Sort column names (which are now strings) to ensure left-to-right order by date
             # This requires converting them back to datetime for sorting, then back to string
             try:
